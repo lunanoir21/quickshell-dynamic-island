@@ -335,9 +335,11 @@ footer .sp { flex: 1; }
       leaves — no dwell timer, no click needed to dismiss it.
     </p>
     <p>
-      Notifications and microphone or camera activity take the surface over on
-      their own and hand it back when they are done. Everything is drawn in
-      greyscale; there is no accent colour anywhere in the project.
+      Notifications, incoming calls, and microphone or camera activity take the
+      surface over on their own and hand it back when they are done. Everything
+      is drawn in greyscale, with the sole exception of the green and red on a
+      call's answer and decline buttons — the two controls where guessing wrong
+      actually costs you something.
     </p>
   </div>
 </section>
@@ -345,9 +347,9 @@ footer .sp { flex: 1; }
 <section class="wrap">
   <p class="eyebrow">Every state</p>
   <div class="prose" style="margin-bottom:clamp(28px,4vw,44px)">
-    <p>Captured live. Interface strings ship in Turkish and sit inline in
-    <code>DynamicIsland.qml</code>, so they are a search-and-replace away from
-    any other language.</p>
+    <p>Captured live. The interface ships in English and Turkish and switches
+    between them at runtime — every string lives in <code>Strings.qml</code>,
+    so a third language is one branch per line away.</p>
   </div>
   <div class="shots">
 
@@ -356,7 +358,7 @@ footer .sp { flex: 1; }
         <p class="name">Collapsed</p>
         <p class="note">Cover, title, pixel clock, battery and the mic/camera privacy dots. The spectrum ribbon rides the top edge while something plays.</p>
       </div>
-      <figure><img src="screenshots/pill.png" alt="The collapsed pill showing cover art, track title, pixel clock, battery and device indicators" loading="lazy" width="560" height="82"></figure>
+      <figure><img src="screenshots/pill.png" alt="The collapsed pill showing cover art, track title, pixel clock, battery and device indicators" loading="lazy" width="531" height="75"></figure>
     </div>
 
     <div class="shot">
@@ -364,7 +366,15 @@ footer .sp { flex: 1; }
         <p class="name">Media</p>
         <p class="note">Cover, scrubbing, transport and a spectrum mirrored around the centre so the low bands meet in the middle. Fed by <code>cava</code>.</p>
       </div>
-      <figure><img src="screenshots/media.png" alt="The expanded media panel with cover art, seek bar, transport controls, mirrored spectrum and three vertical meters" loading="lazy" width="728" height="328"></figure>
+      <figure><img src="screenshots/media.png" alt="The expanded media panel with cover art, seek bar, transport controls, mirrored spectrum and three vertical meters" loading="lazy" width="727" height="321"></figure>
+    </div>
+
+    <div class="shot">
+      <div class="rail">
+        <p class="name">Lyrics</p>
+        <p class="note">Time-synced lines in place of the spectrum, the sung one lit and the neighbours dimmed. The block rises by a line on each change, so it reads as a list scrolling rather than three labels blinking.</p>
+      </div>
+      <figure><img src="screenshots/lyrics.png" alt="The expanded media panel showing the current lyric line highlighted between the previous and next lines" loading="lazy" width="727" height="321"></figure>
     </div>
 
     <div class="shot">
@@ -372,7 +382,15 @@ footer .sp { flex: 1; }
         <p class="name">Clock</p>
         <p class="note">A 5×7 bitmap font drawn to a canvas over a dormant LED grid. Digits roll vertically, one pixel row at a time.</p>
       </div>
-      <figure><img src="screenshots/clock.png" alt="The expanded panel showing the large pixel-art clock and date" loading="lazy" width="760" height="344"></figure>
+      <figure><img src="screenshots/clock.png" alt="The expanded panel showing the large pixel-art clock and date" loading="lazy" width="727" height="321"></figure>
+    </div>
+
+    <div class="shot">
+      <div class="rail">
+        <p class="name">Call</p>
+        <p class="note">An incoming call takes the whole surface, radar rings and all, then folds down to a bar with a running timer once the audio actually connects. Answer and decline invoke the app's own D-Bus actions.</p>
+      </div>
+      <figure><img src="screenshots/call.png" alt="An incoming call screen with a large avatar, radar rings and green accept and red decline buttons" loading="lazy" width="367" height="281"></figure>
     </div>
 
     <div class="shot">
@@ -380,7 +398,15 @@ footer .sp { flex: 1; }
         <p class="name">Notification</p>
         <p class="note">Pushed in over IPC. Uses the sender's own icon, or falls back to a freedesktop icon-name lookup.</p>
       </div>
-      <figure><img src="screenshots/notification.png" alt="A notification card with an app icon, title, body and a dismissal countdown bar" loading="lazy" width="508" height="146"></figure>
+      <figure><img src="screenshots/notification.png" alt="A notification card with an app icon, title, body and a dismissal countdown bar" loading="lazy" width="507" height="139"></figure>
+    </div>
+
+    <div class="shot">
+      <div class="rail">
+        <p class="name">Reply</p>
+        <p class="note">Senders that attach an inline-reply action get a field and a send button. Typing pauses the dismissal countdown, so a half-written reply is never swallowed mid-sentence.</p>
+      </div>
+      <figure><img src="screenshots/reply.png" alt="A notification card with a reply text field and a send button beneath the message" loading="lazy" width="507" height="181"></figure>
     </div>
 
     <div class="shot">
@@ -388,7 +414,7 @@ footer .sp { flex: 1; }
         <p class="name">Privacy</p>
         <p class="note">Raised the moment the microphone or camera starts or stops. Polled at a steady rate even while collapsed.</p>
       </div>
-      <figure><img src="screenshots/device.png" alt="A card announcing that the microphone became active, with a live level meter" loading="lazy" width="428" height="120"></figure>
+      <figure><img src="screenshots/device.png" alt="A card announcing that the microphone became active, with a live level meter" loading="lazy" width="427" height="113"></figure>
     </div>
 
   </div>
@@ -408,6 +434,22 @@ footer .sp { flex: 1; }
     <div class="row">
       <dt>Pixel-art clock</dt>
       <dd>A 5×7 glyph table rendered to a canvas, with vertical digit rolls and Turkish Ç/Ğ/İ/Ö/Ş/Ü included.</dd>
+    </div>
+    <div class="row">
+      <dt>Synced lyrics</dt>
+      <dd>MPRIS has a lyrics field that essentially nothing fills in — Spotify reports it as an empty string — so lines come from <a href="https://lrclib.net">LRCLIB</a>, which needs no account or key. Fetched once per track and cached on disk, misses included, so a track without lyrics is not looked up again on every play. Nothing is fetched on the poll path.</dd>
+    </div>
+    <div class="row">
+      <dt>Calls</dt>
+      <dd>An incoming call is recognised from the notification's own accept/decline actions, and answering or declining invokes those actions rather than faking input at the app. Whether a call is <em>live</em> is inferred from PipeWire instead — an app holding a playback and a capture stream at once is, by construction, mid-call — which is what makes the timer honest and covers calls answered on another device.</dd>
+    </div>
+    <div class="row">
+      <dt>Inline reply</dt>
+      <dd>Notifications carrying an <code>inline-reply</code> action get a field and a send button, wired to the freedesktop reply signal.</dd>
+    </div>
+    <div class="row">
+      <dt>English and Turkish</dt>
+      <dd>Switchable from a chip in the panel or over IPC, and remembered across restarts. With no saved choice it follows <code>QS_ISLAND_LANG</code>, then the session locale. Strings live in one file rather than inline, so nothing silently stays untranslated.</dd>
     </div>
     <div class="row">
       <dt>Device indicators</dt>
@@ -445,7 +487,8 @@ footer .sp { flex: 1; }
     <p>
       Needs Quickshell 0.3+, a wlroots compositor with layer-shell, <code>jq</code>
       and a Nerd Font. <code>playerctl</code>, <code>wpctl</code>,
-      <code>brightnessctl</code>, <code>cava</code> and <code>upower</code> are all
+      <code>brightnessctl</code>, <code>cava</code>, <code>curl</code> (weather and
+      lyrics), <code>pactl</code> (call detection) and <code>upower</code> are all
       optional — anything missing leaves its section empty rather than failing.
     </p>
   </div>
@@ -486,6 +529,7 @@ footer .sp { flex: 1; }
     <a href="https://github.com/lunanoir21/quickshell-dynamic-island">Repository</a>
     <a href="https://quickshell.outfoxxed.me/">Quickshell</a>
     <a href="https://github.com/karlstav/cava">cava</a>
+    <a href="https://lrclib.net">LRCLIB</a>
     <a href="https://github.com/ateliertriay/bricolage">Bricolage Grotesque</a>
   </div>
 </footer>

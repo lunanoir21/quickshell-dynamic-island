@@ -16,6 +16,8 @@ Item {
     property bool showSeconds: true
     property bool showDate: true
     property bool compact: false
+    // Only the date strip is language-dependent; the digits are digits.
+    property string lang: "en"
 
     implicitWidth: stack.implicitWidth
     implicitHeight: stack.implicitHeight
@@ -60,8 +62,8 @@ Item {
         PixelText {
             anchors.horizontalCenter: parent.horizontalCenter
             visible: root.showDate
-            text: root.compact ? PixelFont.shortDateLine(root.time)
-                               : PixelFont.fullDateLine(root.time)
+            text: root.compact ? PixelFont.shortDateLine(root.time, root.lang)
+                               : PixelFont.fullDateLine(root.time, root.lang)
             cell: Math.max(1, Math.round(root.cell * (root.compact ? 0.3 : 0.34)))
             gap: Math.max(1, Math.round(root.gap * 0.5))
             color: root.mutedColor

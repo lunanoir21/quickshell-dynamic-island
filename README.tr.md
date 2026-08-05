@@ -142,9 +142,40 @@ qs -p <shell.qml> ipc call dynamicIsland close
 qs -p <shell.qml> ipc call dynamicIsland activity "herhangi bir metin"
 qs -p <shell.qml> ipc call dynamicIsland notify <uygulama> <başlık> <gövde> <simge>
 qs -p <shell.qml> ipc call dynamicIsland deviceEvent <microphone|camera> <true|false> <değer>
+qs -p <shell.qml> ipc call dynamicIsland lyrics
+qs -p <shell.qml> ipc call dynamicIsland language <tr|en|toggle>
 ```
 
 Bildirimleri adaya yönlendirmek için `notify`'ı bildirim sunucunuza bağlayın.
+
+### Dil
+
+Türkçe ve İngilizce, çalışma anında değiştirilebilir — açık paneldeki `TR`/`EN`
+çipine tıklayın ya da yukarıdaki `language` IPC çağrısını kullanın. Seçim
+`$XDG_CONFIG_HOME/quickshell/dynamic-island/language` dosyasına yazılır ve
+açılışta geri yüklenir.
+
+Kayıtlı bir seçim yoksa ada sırasıyla `QS_ISLAND_LANG` değişkenine, ardından
+oturum yereline (`LC_ALL` / `LC_MESSAGES` / `LANG`) bakar; hiçbiri yoksa
+İngilizceye düşer. Tüm metinler `Strings.qml` içinde; yeni bir dil eklemek
+oradaki her satıra bir dal eklemek demektir.
+
+### Şarkı sözleri
+
+Açık paneldeki sözler çipi (`󰨖`) görselleştiriciyi zamanla senkronize şarkı
+sözleriyle değiştirir; o an çalan satır vurgulanır, bir önceki ve bir sonraki
+satır soluk gösterilir.
+
+MPRIS'in bir sözler alanı var ama neredeyse hiçbir oynatıcı doldurmuyor —
+Spotify boş dize döndürüyor — bu yüzden satırlar hesap ya da API anahtarı
+gerektirmeyen [LRCLIB](https://lrclib.net)'den geliyor. Parça başına bir kez
+indirilip `$XDG_CACHE_HOME/quickshell/dynamic-island/lyrics/` altında
+önbelleğe alınır; sözü olmayan parçalar da hatırlanır, böylece her çalışta
+yeniden istek atılmaz. Anlık durum (snapshot) yolunda hiçbir ağ isteği
+yapılmaz, yani yoklama döngüsü ağa hiç dokunmaz.
+
+Yalnızca zamansız sözü olan parçalarda sözler yine gösterilir, ama takip
+ediyormuş gibi yapmak yerine senkronize olmadığı belirtilir.
 
 ## Nasıl çalışır
 

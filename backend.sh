@@ -6,12 +6,28 @@ weather_cache="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/weather
 weather_lock="$base_dir/weather.lock"
 slow_cache="$base_dir/slow.json"
 slow_lock="$base_dir/slow.lock"
+call_state="$base_dir/call.json"
+lyrics_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/lyrics"
+# Where the UI persists user choices (currently just the language). Created
+# here rather than from QML because Quickshell's file writer won't create
+# missing parent directories, and this script runs on every poll — so the
+# directory is always in place long before anything tries to write to it.
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/dynamic-island"
 mkdir -p "$base_dir"
 mkdir -p "$(dirname "$weather_cache")"
+mkdir -p "$config_dir"
+
+# Apps whose simultaneous playback + capture stream counts as an active call.
+# Extend this pattern to cover other VoIP clients as needed.
+call_app_pattern='signal|telegram|whatsapp'
 
 # Seconds a cached value may go stale before a background refresh is kicked off.
 slow_ttl=4
 weather_ttl=900
+# Only applies to "we looked and there were none" markers. A track that has
+# lyrics keeps them forever (they don't change), but a miss is worth retrying
+# eventually since LRCLIB is community-contributed and gains tracks over time.
+lyrics_miss_ttl=604800
 
 file_age() {
     local now modified
@@ -22,6 +38,80 @@ file_age() {
     else
         echo 999999
     fi
+}
+
+# Prints the LRC (or plain) lyrics for a track, fetching them once and then
+# serving every later request from disk.
+#
+# This is deliberately NOT part of the snapshot: snapshots run on a timer and
+# must never touch the network. The UI calls this separately, once per track
+# change, and waits for it out of band.
+#
+# MPRIS carries no lyrics of its own — Spotify reports xesam:asText as an empty
+# string — so they have to come from somewhere else entirely. LRCLIB is the one
+# source that needs no account, no key and no client registration, and it
+# serves timestamped lines, which is what makes a synced view possible at all.
+lyrics_for() {
+    local artist="$1" title="$2" duration="${3:-0}"
+    [[ -n "$artist" && -n "$title" ]] || return 0
+    command -v curl >/dev/null 2>&1 || return 0
+
+    mkdir -p "$lyrics_dir" 2>/dev/null || return 0
+
+    local key cache lock now modified
+    # Hashed because track and artist names contain slashes, quotes and
+    # newlines that have no business being in a filename.
+    key=$(printf '%s\n%s' "${artist,,}" "${title,,}" | sha1sum | cut -d' ' -f1)
+    cache="$lyrics_dir/$key.lrc"
+    lock="$lyrics_dir/$key.lock"
+
+    if [[ -f "$cache" ]]; then
+        # A non-empty cache is a hit and never expires. An empty one is the
+        # "checked, none exist" marker and is retried once it goes stale.
+        if [[ -s "$cache" ]]; then
+            cat "$cache"
+            return 0
+        fi
+        now=$(date +%s)
+        modified=$(stat -c %Y "$cache" 2>/dev/null || echo 0)
+        (( now - modified < lyrics_miss_ttl )) && return 0
+    fi
+
+    # Track changes can fire several lookups in a row (metadata often lands in
+    # pieces); without this the same track would be fetched more than once.
+    mkdir "$lock" 2>/dev/null || return 0
+    trap 'rmdir "$lock" 2>/dev/null' RETURN
+
+    local response synced plain
+    response=$(curl -fsSL --max-time 6 -G 'https://lrclib.net/api/get' \
+        --data-urlencode "artist_name=$artist" \
+        --data-urlencode "track_name=$title" \
+        ${duration:+--data-urlencode "duration=$duration"} 2>/dev/null || true)
+
+    # LRCLIB matches duration within a couple of seconds and 404s otherwise.
+    # Players round differently, so a miss here is often just that — retry
+    # without the constraint before believing the track has no lyrics.
+    if [[ -z "$response" ]]; then
+        response=$(curl -fsSL --max-time 6 -G 'https://lrclib.net/api/get' \
+            --data-urlencode "artist_name=$artist" \
+            --data-urlencode "track_name=$title" 2>/dev/null || true)
+    fi
+
+    synced=$(jq -r '.syncedLyrics // empty' <<<"$response" 2>/dev/null)
+    plain=$(jq -r '.plainLyrics // empty' <<<"$response" 2>/dev/null)
+
+    # Written even when empty: that empty file is the negative-cache marker
+    # that stops every later track change from hitting the network again.
+    if [[ -n "$synced" ]]; then
+        printf '%s\n' "$synced" > "$cache.tmp"
+    elif [[ -n "$plain" ]]; then
+        printf '%s\n' "$plain" > "$cache.tmp"
+    else
+        : > "$cache.tmp"
+    fi
+    mv "$cache.tmp" "$cache" 2>/dev/null || true
+    [[ -s "$cache" ]] && cat "$cache"
+    return 0
 }
 
 # The weather fetch takes seconds. Without a lock every poll during that window
@@ -113,10 +203,15 @@ json_snapshot() {
     refresh_weather
     refresh_slow
 
-    local media status title artist art length_us length_s position_us position_s player lyrics shuffle loop
+    local media status title artist art length_us length_s position_s player shuffle loop track_url
     # One templated call replaces eight separate playerctl invocations.
+    # {{position}} is deliberately used instead of {{mpris:position}}: the raw
+    # MPRIS property is a snapshot many players (Firefox included) never
+    # update while playing, whereas playerctl's normalized {{position}} adds
+    # elapsed real time on top of it — the only one of the two that tracks a
+    # playing track at all.
     media=$(timeout 1 playerctl metadata --format \
-        '{{status}}§|§{{title}}§|§{{artist}}§|§{{mpris:artUrl}}§|§{{mpris:length}}§|§{{playerName}}§|§{{position}}§|§{{xesam:asText}}' \
+        '{{status}}§|§{{title}}§|§{{artist}}§|§{{mpris:artUrl}}§|§{{mpris:length}}§|§{{playerName}}§|§{{position}}§|§{{xesam:url}}' \
         2>/dev/null | head -n1 || true)
     # Split on the §|§ delimiter; parameter expansion handles multi-char safely.
     status=${media%%§|§*}
@@ -126,15 +221,34 @@ json_snapshot() {
     art=${rest%%§|§*}; rest=${rest#*§|§}
     length_us=${rest%%§|§*}; rest=${rest#*§|§}
     player=${rest%%§|§*}; rest=${rest#*§|§}
-    position_us=${rest%%§|§*}; rest=${rest#*§|§}
-    lyrics=${rest%%§|§*}
-    lyrics=$(printf '%s' "$lyrics" | tr '\n' ' ' | head -c 300)
+    position_s=${rest%%§|§*}; rest=${rest#*§|§}
+    track_url=${rest%%§|§*}
+
+    # Browser tabs (YouTube via Firefox/Chrome's MPRIS bridge, at least) never
+    # send mpris:artUrl at all — there's nothing to fall back to there, so the
+    # only way to show a real thumbnail is to derive one from the page URL
+    # MPRIS does give us. i.ytimg.com serves any video's thumbnail by id with
+    # no key or lookup needed.
+    if [[ -z "$art" && "$track_url" =~ (youtube\.com/(watch\?v=|shorts/)|youtu\.be/)([A-Za-z0-9_-]{11}) ]]; then
+        art="https://i.ytimg.com/vi/${BASH_REMATCH[3]}/hqdefault.jpg"
+    fi
 
     [[ "$status" == "Playing" || "$status" == "Paused" ]] || status="Stopped"
     [[ "$length_us" =~ ^[0-9]+$ ]] || length_us=0
-    [[ "$position_us" =~ ^[0-9]+$ ]] || position_us=0
     length_s=$((length_us / 1000000))
-    position_s=$((position_us / 1000000))
+    # {{position}} is supposed to be playerctl's own normalized field, already
+    # in seconds — but not every MPRIS bridge is spec-compliant about it.
+    # Firefox's really is plain seconds; Spotify's (and most spec-following
+    # players') is still raw microseconds, matching mpris:length's units.
+    # Dividing unconditionally (an earlier version of this script) broke
+    # Firefox; never dividing (the version after that) broke Spotify — it
+    # reported real positions in the hundreds of millions, which the frontend
+    # immediately clamps down to the track length, pinning the bar at the end.
+    # A five-day track is not a real thing, so treat anything that large as
+    # microseconds and anything smaller as the seconds it claims to be.
+    [[ "$position_s" =~ ^[0-9]+(\.[0-9]+)?$ ]] || position_s=0
+    position_s=${position_s%%.*}
+    (( position_s >= 1000000 )) && position_s=$((position_s / 1000000))
 
     shuffle="Off"
     loop="None"
@@ -168,6 +282,38 @@ json_snapshot() {
     brightness=$(timeout 1 brightnessctl -m 2>/dev/null | awk -F, '{gsub(/%/,"",$4); print $4; exit}' || true)
     [[ "$brightness" =~ ^[0-9]+$ ]] || brightness=0
 
+    # A call is inferred from PipeWire, not any one app's API: whichever known
+    # VoIP app has both a playback stream (remote audio) and a capture stream
+    # (our mic) open at once is, by construction, mid-call. This is what lets
+    # one heuristic cover Signal/Telegram/WhatsApp without touching any of
+    # their private protocols.
+    local call_active=false call_app="" call_duration=0
+    if command -v pactl >/dev/null 2>&1; then
+        local playback_apps capture_apps
+        playback_apps=$(pactl list sink-inputs 2>/dev/null \
+            | awk -F'= ' '/application\.(name|process\.binary)/ {gsub(/"/,"",$2); print tolower($2)}')
+        capture_apps=$(pactl list source-outputs 2>/dev/null \
+            | awk -F'= ' '/application\.(name|process\.binary)/ {gsub(/"/,"",$2); print tolower($2)}')
+        if [[ -n "$playback_apps" && -n "$capture_apps" ]]; then
+            call_app=$(grep -iE "$call_app_pattern" <<<"$playback_apps" | while read -r app; do
+                grep -qxF "$app" <<<"$capture_apps" && { echo "$app"; break; }
+            done)
+            [[ -n "$call_app" ]] && call_active=true
+        fi
+    fi
+
+    local now_epoch prev_app prev_start
+    now_epoch=$(date +%s)
+    if [[ "$call_active" == "true" ]]; then
+        prev_app="" prev_start=""
+        [[ -s "$call_state" ]] && read -r prev_app prev_start < <(jq -r '"\(.app // "") \(.start // "")"' "$call_state" 2>/dev/null)
+        [[ "$prev_app" == "$call_app" && "$prev_start" =~ ^[0-9]+$ ]] || prev_start=$now_epoch
+        jq -nc --arg app "$call_app" --argjson start "$prev_start" '{app:$app,start:$start}' > "$call_state.tmp" && mv "$call_state.tmp" "$call_state"
+        call_duration=$((now_epoch - prev_start))
+    else
+        rm -f "$call_state"
+    fi
+
     local bat_path battery battery_status
     bat_path=$(find /sys/class/power_supply -maxdepth 1 -type l -name 'BAT*' 2>/dev/null | head -n1 || true)
     if [[ -n "$bat_path" ]]; then
@@ -196,15 +342,16 @@ json_snapshot() {
     # in the filter so no extra processes are needed to read them.
     jq -nc \
         --arg status "$status" --arg title "$title" --arg artist "$artist" --arg art "$art" \
-        --arg player "$player" --arg lyrics "$lyrics" --arg shuffle "$shuffle" --arg loop "$loop" \
+        --arg player "$player" --arg shuffle "$shuffle" --arg loop "$loop" \
         --argjson length "$length_s" --argjson position "$position_s" \
         --argjson volume "$volume" --argjson muted "$muted" --argjson micVolume "$mic_volume" \
         --argjson micMuted "$mic_muted" --argjson micActive "$mic_active" --argjson brightness "$brightness" \
         --argjson battery "$battery" --arg batteryStatus "$battery_status" \
         --argjson weather "$weather" --argjson slow "$slow" \
         --arg activeWindow "$active_window" --argjson fullscreen "$fullscreen" \
+        --argjson callActive "$call_active" --arg callApp "$call_app" --argjson callDuration "$call_duration" \
         '{
-            media: {status:$status,title:$title,artist:$artist,art:$art,player:$player,lyrics:$lyrics,shuffle:$shuffle,loop:$loop,length:$length,position:$position},
+            media: {status:$status,title:$title,artist:$artist,art:$art,player:$player,shuffle:$shuffle,loop:$loop,length:$length,position:$position},
             volume:$volume, muted:$muted, micVolume:$micVolume, micMuted:$micMuted, micActive:$micActive,
             brightness:$brightness, battery:$battery, batteryStatus:$batteryStatus,
             batteryTime:$slow.batteryTime, bluetooth:$slow.bluetooth,
@@ -214,6 +361,7 @@ json_snapshot() {
                 apparent: $weather.apparent
             },
             cameraActive:$slow.cameraActive,
+            call: {active:$callActive, app:$callApp, duration:$callDuration},
             system: {wifi:$slow.wifi, activeWindow:$activeWindow, fullscreen:$fullscreen}
         }'
 }
@@ -236,6 +384,7 @@ case "${1:-snapshot}" in
         [[ "$current" == "None" ]] && next=Playlist || { [[ "$current" == "Playlist" ]] && next=Track || next=None; }
         playerctl loop "$next" >/dev/null 2>&1 || true ;;
     brightness) brightnessctl set "${2:-50}%" >/dev/null 2>&1 || true ;;
+    lyrics) lyrics_for "${2:-}" "${3:-}" "${4:-0}" ;;
     visualizer)
         if command -v cava >/dev/null 2>&1; then
             exec cava -p <(printf '%s\n' '[general]' 'bars = 16' 'framerate = 30' '[output]' 'method = raw' 'raw_target = /dev/stdout' 'data_format = ascii' 'ascii_max_range = 100' 'channels = mono' '[smoothing]' 'monstercat = 1' 'waves = 0')

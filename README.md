@@ -142,10 +142,38 @@ qs -p <shell.qml> ipc call dynamicIsland close
 qs -p <shell.qml> ipc call dynamicIsland activity "any text"
 qs -p <shell.qml> ipc call dynamicIsland notify <app> <title> <body> <icon>
 qs -p <shell.qml> ipc call dynamicIsland deviceEvent <microphone|camera> <true|false> <value>
+qs -p <shell.qml> ipc call dynamicIsland lyrics
+qs -p <shell.qml> ipc call dynamicIsland language <tr|en|toggle>
 ```
 
 Wire `notify` into your notification daemon to route notifications through the
 island.
+
+### Language
+
+English and Turkish, switchable at runtime — click the `TR`/`EN` chip in the
+open panel, or use the `language` IPC call above. The choice is written to
+`$XDG_CONFIG_HOME/quickshell/dynamic-island/language` and restored on startup.
+
+Without a saved choice the island follows `QS_ISLAND_LANG`, then the session
+locale (`LC_ALL` / `LC_MESSAGES` / `LANG`), falling back to English. Every
+string lives in `Strings.qml`; adding a language means adding one branch per
+line there.
+
+### Lyrics
+
+The lyrics chip (`󰨖`) in the open panel swaps the visualiser for time-synced
+lyrics, highlighting the current line and showing the ones either side of it.
+
+MPRIS has a lyrics field, but essentially nothing fills it in — Spotify reports
+it as an empty string — so lines come from [LRCLIB](https://lrclib.net), which
+needs no account or API key. They are fetched once per track and cached under
+`$XDG_CACHE_HOME/quickshell/dynamic-island/lyrics/`; tracks with no lyrics are
+remembered too, so a miss is not re-requested on every play. Nothing is fetched
+on the snapshot path, so the poll loop never touches the network.
+
+Tracks that only have untimed lyrics still show them, labelled as not synced
+rather than pretending to follow along.
 
 ## How it works
 

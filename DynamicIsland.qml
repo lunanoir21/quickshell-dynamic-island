@@ -25,7 +25,7 @@ PanelWindow {
     property bool lockedOpen: false
     property bool notificationVisible: false
     property bool deviceEventVisible: false
-    readonly property bool alertVisible: notificationVisible || deviceEventVisible
+    readonly property bool alertVisible: notificationVisible || deviceEventVisible || callVisible
     readonly property bool expanded: hovering || lockedOpen || alertVisible
 
     // Set while a slider is being dragged so the pointer straying a few pixels
@@ -34,7 +34,7 @@ PanelWindow {
     // silently disabled every close path.
     property bool interacting: false
 
-    property var islandState: ({media:{status:"Stopped",title:"",artist:"",art:"",player:"",lyrics:"",shuffle:"Off",loop:"None",length:0,position:0},volume:0,muted:false,micVolume:0,micMuted:false,micActive:false,brightness:0,battery:100,batteryStatus:"",batteryTime:"",bluetooth:"",weather:{icon:"",temp:"",apparent:""},cameraActive:false,system:{wifi:"",activeWindow:"",fullscreen:0}})
+    property var islandState: ({media:{status:"Stopped",title:"",artist:"",art:"",player:"",shuffle:"Off",loop:"None",length:0,position:0},volume:0,muted:false,micVolume:0,micMuted:false,micActive:false,brightness:0,battery:100,batteryStatus:"",batteryTime:"",bluetooth:"",weather:{icon:"",temp:"",apparent:""},cameraActive:false,call:{active:false,app:"",duration:0},system:{wifi:"",activeWindow:"",fullscreen:0}})
 
     property int previousVolume: -1
     property int previousBrightness: -1
@@ -42,6 +42,7 @@ PanelWindow {
     property bool previousMicMuted: false
     property bool previousMicActive: false
     property bool previousCameraActive: false
+    property bool previousCallActive: false
     property bool startupRead: false
 
     property string hudKind: ""
@@ -52,6 +53,124 @@ PanelWindow {
     property string notificationIcon: ""
     property string notificationTitle: ""
     property string notificationBody: ""
+    property string notificationUid: ""
+    // Set only when the sender attached a KDE-style "inline-reply" action —
+    // Quickshell strips that action out of n.actions itself and surfaces it
+    // as these two fields instead, so their presence already means the
+    // sender opted in; no guessing needed on our end.
+    property bool notificationHasReply: false
+    property string notificationReplyPlaceholder: ""
+    property string notificationReplyText: ""
+
+    // ------------------------------------------------------------ call ring
+    // Two independent signals feed this: a real incoming-call notification
+    // (from the app's own D-Bus actions, so Answer/Reject are genuine) opens
+    // the ring state; the PipeWire heuristic in backend.sh confirms/ends the
+    // live state once audio actually starts flowing. Either can drive the
+    // card alone — a call answered on the phone/another device still shows
+    // up here once the audio streams appear, even with no ring beforehand.
+    property bool callRinging: false
+    property bool callAnswering: false
+    property string callApp: ""
+    property string callTitle: ""
+    property string callUid: ""
+    property string callAcceptId: ""
+    property string callDeclineId: ""
+    readonly property bool callVisible: callRinging || !!islandState.call.active
+    readonly property string callDisplayApp: callApp !== "" ? callApp
+        : (islandState.call.app !== "" ? islandState.call.app.charAt(0).toUpperCase() + islandState.call.app.slice(1) : i18n.callFallbackApp)
+    readonly property string callDisplayTitle: callTitle !== "" ? callTitle : i18n.voiceCall
+
+    function classifyCallActions(actions) {
+        let accept = "", decline = ""
+        for (let i = 0; i < actions.length; i++) {
+            let hay = (String(actions[i].id || "") + " " + String(actions[i].text || "")).toLowerCase()
+            if (!accept && /accept|answer|kabul|cevapla/.test(hay)) accept = actions[i].id
+            else if (!decline && /decline|reject|hangup|reddet|kapat/.test(hay)) decline = actions[i].id
+        }
+        if (!accept && !decline) {
+            if (actions.length >= 2) { accept = actions[0].id; decline = actions[1].id }
+            else if (actions.length === 1) decline = actions[0].id
+        }
+        return {accept: accept, decline: decline}
+    }
+
+    // Restricted to known VoIP apps with an incoming-call action attached —
+    // matching on stray words like "call" in an ordinary chat message would
+    // pop the ring card for things that were never a call.
+    function isIncomingCall(app, title, body, actions) {
+        if (!/signal|telegram|whatsapp/i.test(app)) return false
+        if (actions.length === 0) return false
+        if (/accept|answer|decline|reject|kabul|reddet|cevapla/i.test(JSON.stringify(actions))) return true
+        return /arama|call|calling|ringing|ar[ıi]yor/i.test(title + " " + body)
+    }
+
+    function showIncomingCall(app, title, actions, uid) {
+        if (window.callVisible) return
+        let mapped = classifyCallActions(actions)
+        window.notificationVisible = false
+        window.deviceEventVisible = false
+        window.callApp = app
+        window.callTitle = title
+        window.callUid = uid
+        window.callAcceptId = mapped.accept
+        window.callDeclineId = mapped.decline
+        window.callAnswering = false
+        window.callRinging = true
+        callRingTimeout.restart()
+    }
+
+    function invokeCallAction(actionId) {
+        if (window.callUid === "" || actionId === "") return
+        // Targets Main.qml, not Shell.qml: whichever quickshell instance owns
+        // org.freedesktop.Notifications is the one holding the live,
+        // invokable Notification object, and on this setup that is the
+        // standalone Main.qml process, not the copy of Main{} embedded in
+        // Shell.qml (its NotificationServer loses the D-Bus name and never
+        // receives anything).
+        Quickshell.execDetached(["quickshell", "-p", Quickshell.env("HOME") + "/.config/hypr/scripts/quickshell/Main.qml",
+            "ipc", "call", "notificationBridge", "invokeAction", window.callUid, actionId])
+    }
+
+    function answerCall() {
+        window.invokeCallAction(window.callAcceptId)
+        window.callAnswering = true
+        window.callRinging = false
+        callRingTimeout.stop()
+        // Stopping the ring timeout above removed the only thing that would
+        // ever clear this state again — without a timeout of its own here,
+        // a call that answers locally but never actually connects (heuristic
+        // never sees a matching stream, far end never picks up, etc.) leaves
+        // "Bağlanıyor…" stuck on screen forever.
+        callConnectTimeout.restart()
+    }
+
+    function rejectCall() {
+        window.invokeCallAction(window.callDeclineId)
+        window.callRinging = false
+        window.callAnswering = false
+        callRingTimeout.stop()
+        callConnectTimeout.stop()
+    }
+
+    function giveUpOnCall() {
+        window.callRinging = false
+        window.callAnswering = false
+        callRingTimeout.stop()
+        callConnectTimeout.stop()
+    }
+
+    Timer {
+        id: callRingTimeout
+        interval: 35000
+        onTriggered: if (!window.islandState.call.active) window.giveUpOnCall()
+    }
+
+    Timer {
+        id: callConnectTimeout
+        interval: 15000
+        onTriggered: if (!window.islandState.call.active) window.giveUpOnCall()
+    }
 
     property string deviceEventType: ""
     property string deviceEventTitle: ""
@@ -59,6 +178,50 @@ PanelWindow {
     property string deviceEventIcon: ""
 
     property string uiFont: bricolage.status === FontLoader.Ready ? bricolage.name : "Bricolage Grotesque"
+
+    // ------------------------------------------------------------ language
+    // Three sources, most specific first: what the user picked in the UI (saved
+    // to disk so it survives a reload), then QS_ISLAND_LANG for people who set
+    // their shell up declaratively, then the session locale so a fresh install
+    // just speaks whatever the rest of the desktop does.
+    property string langChoice: ""
+    readonly property string lang: {
+        if (langChoice === "tr" || langChoice === "en") return langChoice
+        let forced = String(Quickshell.env("QS_ISLAND_LANG") || "").toLowerCase()
+        if (forced.indexOf("tr") === 0) return "tr"
+        if (forced.indexOf("en") === 0) return "en"
+        let sys = String(Quickshell.env("LC_ALL") || Quickshell.env("LC_MESSAGES")
+                         || Quickshell.env("LANG") || "").toLowerCase()
+        return sys.indexOf("tr") === 0 ? "tr" : "en"
+    }
+    Strings { id: i18n; lang: window.lang }
+
+    FileView {
+        id: langFile
+        path: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config"))
+              + "/quickshell/dynamic-island/language"
+        // Read synchronously during startup: an async read would paint the
+        // whole island in the fallback language first and visibly relabel
+        // itself a frame later.
+        blockLoading: true
+        // Missing on first run by definition — that is not worth a warning.
+        printErrors: false
+        atomicWrites: true
+    }
+
+    function setLanguage(code) {
+        code = String(code || "").toLowerCase()
+        if (code === "toggle") code = window.lang === "tr" ? "en" : "tr"
+        if (code !== "tr" && code !== "en") return
+        window.langChoice = code
+        langFile.setText(code + "\n")
+    }
+
+    Component.onCompleted: {
+        let saved = String(langFile.text() || "").trim().toLowerCase()
+        if (saved === "tr" || saved === "en") window.langChoice = saved
+    }
+
     readonly property bool previewMode: Quickshell.env("QS_ISLAND_PREVIEW") === "1"
     property bool fullscreenActive: !previewMode && Number(islandState.system.fullscreen || 0) > 0
     property date currentTime: new Date()
@@ -97,7 +260,7 @@ PanelWindow {
     }
 
     NumberAnimation on visualPhase {
-        running: window.mediaStatus === "Playing" || window.islandState.micActive
+        running: window.mediaStatus === "Playing" || window.islandState.micActive || window.callRinging || window.callAnswering
         loops: Animation.Infinite
         from: 0; to: Math.PI * 2
         duration: 1100
@@ -129,6 +292,7 @@ PanelWindow {
     // progress bar step in visible jumps. Advance it locally between polls and
     // resync whenever the reported value drifts (seek, track change).
     property real mediaPosition: 0
+    readonly property bool mediaLengthKnown: (islandState.media.length || 0) > 0
     Timer { id: positionSettleTimer; interval: 900 }
 
     Timer {
@@ -146,6 +310,129 @@ PanelWindow {
         if (window.interacting || positionSettleTimer.running) return
         let value = Number(reported) || 0
         if (Math.abs(value - window.mediaPosition) > 1.4) window.mediaPosition = value
+    }
+
+    // ----------------------------------------------------------------- lyrics
+    // MPRIS has a lyrics field (xesam:asText) but essentially nothing populates
+    // it — Spotify reports it as an empty string — so lines are fetched from
+    // LRCLIB by backend.sh and cached there. See the note above lyrics_for().
+    property bool showLyrics: false
+    // [{ t: seconds, text: "..." }], ascending by t. Empty t on every entry
+    // means the source had no timestamps (plain lyrics).
+    property var lyricLines: []
+    property bool lyricsSynced: false
+    property bool lyricsLoading: false
+    property string lyricsKey: ""
+
+    // Identifies the track, not the playback state: this is what decides when
+    // to go looking for a different set of lyrics.
+    readonly property string trackKey: (islandState.media.artist || "") + " " + (islandState.media.title || "")
+
+    onTrackKeyChanged: window.reloadLyrics()
+
+    function reloadLyrics() {
+        let artist = String(window.islandState.media.artist || "").trim()
+        let title = String(window.islandState.media.title || "").trim()
+        window.lyricLines = []
+        window.lyricsSynced = false
+        window.lyricsKey = window.trackKey
+        if (artist === "" || title === "" || window.mediaStatus === "Stopped") {
+            window.lyricsLoading = false
+            lyricsProcess.running = false
+            return
+        }
+        window.lyricsLoading = true
+        lyricsProcess.running = false
+        lyricsProcess.command = [window.backend, "lyrics", artist, title,
+                                 String(Math.round(window.islandState.media.length || 0))]
+        lyricsProcess.running = true
+    }
+
+    // LRC is "[mm:ss.cc] text" per line. Anything without a leading timestamp
+    // is kept too — plain lyrics still beat showing nothing — but marks the
+    // set as unsynced so the UI stops pretending to follow along.
+    function parseLyrics(raw) {
+        let out = []
+        let synced = false
+        let lines = String(raw).split("\n")
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i]
+            if (line.trim() === "") continue
+            // A single line can carry several timestamps for repeated choruses.
+            let stamps = line.match(/\[\d+:\d+(?:[.:]\d+)?\]/g)
+            let text = line.replace(/\[\d+:\d+(?:[.:]\d+)?\]/g, "").trim()
+            if (stamps && stamps.length > 0) {
+                synced = true
+                for (let s = 0; s < stamps.length; s++) {
+                    let parts = stamps[s].slice(1, -1).split(/[:.]/)
+                    let seconds = Number(parts[0]) * 60 + Number(parts[1])
+                    if (parts.length > 2) seconds += Number(parts[2]) / (parts[2].length === 3 ? 1000 : 100)
+                    // Instrumental gaps come through as empty text; they still
+                    // need an entry so the previous line stops being current.
+                    out.push({ t: seconds, text: text })
+                }
+            } else {
+                out.push({ t: -1, text: text })
+            }
+        }
+        out.sort((a, b) => a.t - b.t)
+        window.lyricsSynced = synced
+        window.lyricLines = out
+    }
+
+    // Index of the line that should be highlighted right now, or -1.
+    readonly property int currentLyricIndex: {
+        if (!lyricsSynced || lyricLines.length === 0) return -1
+        let pos = mediaPosition + 0.25
+        let found = -1
+        for (let i = 0; i < lyricLines.length; i++) {
+            if (lyricLines[i].t <= pos) found = i
+            else break
+        }
+        return found
+    }
+
+    function lyricAt(offset) {
+        let i = window.currentLyricIndex + offset
+        if (i < 0 || i >= window.lyricLines.length) return ""
+        return window.lyricLines[i].text
+    }
+
+    // The three visible slots, resolved for every state the pane can be in so
+    // the UI itself stays free of state juggling.
+    readonly property string lyricPrev: {
+        if (lyricsLoading || lyricLines.length === 0) return ""
+        // Explains why the lines below are sitting still, instead of leaving
+        // the impression that syncing is simply broken.
+        if (!lyricsSynced) return i18n.lyricsUnsynced
+        return lyricAt(-1)
+    }
+    readonly property string lyricCurrent: {
+        if (lyricsLoading) return i18n.lyricsSearching
+        if (lyricLines.length === 0) return i18n.lyricsNotFound
+        if (!lyricsSynced) return lyricLines[0].text
+        return lyricAt(0)
+    }
+    readonly property string lyricNext: {
+        if (lyricsLoading || lyricLines.length === 0) return ""
+        if (!lyricsSynced) return lyricLines.length > 1 ? lyricLines[1].text : ""
+        return lyricAt(1)
+    }
+    // Dim the current line for the placeholder states — it is a status
+    // message then, not a lyric, and shouldn't shout.
+    readonly property bool lyricIsPlaceholder: lyricsLoading || lyricLines.length === 0
+
+    Process {
+        id: lyricsProcess
+        stdout: StdioCollector {
+            onStreamFinished: {
+                window.lyricsLoading = false
+                let raw = text
+                if (!raw || raw.trim() === "") { window.lyricLines = []; window.lyricsSynced = false; return }
+                try { window.parseLyrics(raw) }
+                catch (error) { console.warn("Dynamic Island lyrics:", error); window.lyricLines = [] }
+            }
+        }
     }
 
     function mediaAction(command) {
@@ -281,15 +568,37 @@ PanelWindow {
         return ""
     }
 
-    function showNotification(app, title, body, icon) {
+    function showNotification(app, title, body, icon, uid, hasReply, replyPlaceholder) {
+        if (window.callVisible) return
         notificationApp = app
         notificationIcon = resolveAppIcon(app, icon)
         notificationTitle = title
         notificationBody = body
+        notificationUid = uid || ""
+        notificationHasReply = !!hasReply
+        notificationReplyPlaceholder = replyPlaceholder || ""
+        notificationReplyText = ""
+        // The field's own `text` stops tracking notificationReplyText the
+        // instant it's typed into — QML severs a property binding as soon as
+        // anything assigns to it imperatively, which is exactly what typing
+        // does. Without this, a draft abandoned on one notification would
+        // still be sitting in the field, visible, on a completely unrelated
+        // later one.
+        replyField.text = ""
         deviceEventVisible = false
         notificationVisible = true
         notificationTimer.restart()
         notificationProgress.restart()
+    }
+
+    function sendNotificationReply() {
+        let text = window.notificationReplyText.trim()
+        if (text === "" || window.notificationUid === "") return
+        Quickshell.execDetached(["quickshell", "-p", Quickshell.env("HOME") + "/.config/hypr/scripts/quickshell/Main.qml",
+            "ipc", "call", "notificationBridge", "sendInlineReply", window.notificationUid, text])
+        window.notificationVisible = false
+        window.notificationReplyText = ""
+        replyField.text = ""
     }
 
     function showHud(kind, value) {
@@ -299,16 +608,17 @@ PanelWindow {
     }
 
     function showDeviceEvent(type, enabled, value) {
+        if (window.callVisible) return
         notificationVisible = false
         deviceEventType = type
         if (type === "camera") {
             deviceEventIcon = enabled ? "󰄀" : "󰄁"
-            deviceEventTitle = enabled ? "Kamera kullanılıyor" : "Kamera kapatıldı"
-            deviceEventSubtitle = enabled ? "Bir uygulama görüntü alıyor" : "Görüntü akışı sonlandırıldı"
+            deviceEventTitle = enabled ? i18n.cameraOn : i18n.cameraOff
+            deviceEventSubtitle = enabled ? i18n.cameraOnDetail : i18n.cameraOffDetail
         } else {
             deviceEventIcon = enabled ? "󰍬" : "󰍭"
-            deviceEventTitle = enabled ? "Mikrofon etkin" : "Mikrofon sessize alındı"
-            deviceEventSubtitle = enabled ? "Giriş seviyesi  %" + value : "Ses girişi durduruldu"
+            deviceEventTitle = enabled ? i18n.micOn : i18n.micOff
+            deviceEventSubtitle = enabled ? i18n.micOnDetail(value) : i18n.micOffDetail
         }
         deviceEventVisible = true
         deviceEventTimer.restart()
@@ -321,6 +631,16 @@ PanelWindow {
         function open(): void { window.lockedOpen = true }
         function close(): void { window.closeIsland() }
         function activity(text: string): void { window.activityText = text; activityTimer.restart() }
+        // "tr", "en", or "toggle". The choice is persisted, so this is also how
+        // a keybind or a script can set the language once and have it stick.
+        function language(code: string): void { window.setLanguage(code) }
+        function lyrics(): void { window.showLyrics = !window.showLyrics }
+        function clock(): void { window.showClock = !window.showClock }
+        // A call rings for up to 35s (or until answered/declined) on its own
+        // timer, independent of the sending notification's own expire-timeout
+        // — so there is otherwise no way to back out of a call screen that
+        // was raised by mistake, or by a test, without waiting it out.
+        function dismissCall(): void { window.giveUpOnCall() }
         function deviceEvent(type: string, enabled: bool, value: int): void { window.showDeviceEvent(type, enabled, value) }
         function notification(app: string, title: string, body: string): void {
             window.showNotification(app, title, body, "")
@@ -329,6 +649,21 @@ PanelWindow {
         // more accurate than looking it up from the name.
         function notify(app: string, title: string, body: string, icon: string): void {
             window.showNotification(app, title, body, icon)
+        }
+
+        // Same as notify(), but carries the notification's D-Bus actions, its
+        // uid, and its inline-reply fields — needed to answer/reject a call
+        // or send a reply through the app's own D-Bus hooks instead of
+        // faking input. actionsJson is base64(JSON string); see the matching
+        // comment in Main.qml for why it can't be raw JSON.
+        function notifyWithActions(app: string, title: string, body: string, icon: string, actionsJson: string, uid: string, hasInlineReply: bool, inlineReplyPlaceholder: string): void {
+            let actions = []
+            try { actions = actionsJson ? JSON.parse(Qt.atob(actionsJson)) : [] } catch (error) { actions = [] }
+            if (window.isIncomingCall(app, title, body, actions)) {
+                window.showIncomingCall(app, title, actions, uid)
+            } else {
+                window.showNotification(app, title, body, icon, uid, hasInlineReply, inlineReplyPlaceholder)
+            }
         }
     }
 
@@ -348,10 +683,26 @@ PanelWindow {
                         else if (next.micActive !== window.previousMicActive) window.showDeviceEvent("microphone", next.micActive, next.micVolume)
                         if (next.cameraActive !== window.previousCameraActive) window.showDeviceEvent("camera", next.cameraActive, 0)
                         if (window.previousBattery >= 0 && next.batteryStatus === "Charging" && next.battery !== window.previousBattery) {
-                            window.activityText = "󰂄  Şarj ediliyor  " + next.battery + "%"
+                            window.activityText = i18n.charging(next.battery)
                             activityTimer.restart()
                         }
                     }
+                    let callNow = !!(next.call && next.call.active)
+                    if (callNow) {
+                        // Audio confirms the call connected — the ring (if any)
+                        // has done its job.
+                        window.callRinging = false
+                        window.callAnswering = false
+                        callConnectTimeout.stop()
+                    } else if (window.previousCallActive && !window.callRinging) {
+                        // Call ended: drop the caller name so a later, unrelated
+                        // call started via the audio heuristic alone doesn't
+                        // show a stale title.
+                        window.callApp = ""
+                        window.callTitle = ""
+                    }
+                    window.previousCallActive = callNow
+
                     window.previousVolume = next.volume
                     window.previousBrightness = next.brightness
                     window.previousBattery = next.battery
@@ -413,6 +764,10 @@ PanelWindow {
             window.notificationIcon = ""
             window.notificationTitle = ""
             window.notificationBody = ""
+            window.notificationUid = ""
+            window.notificationHasReply = false
+            window.notificationReplyPlaceholder = ""
+            window.notificationReplyText = ""
         }
     }
 
@@ -447,11 +802,19 @@ PanelWindow {
     // or two whenever a digit changes, and without snapping that retriggered the
     // island's width animation once a second.
     readonly property real compactWidth: Math.max(320, Math.ceil((compactContent.implicitWidth + 52) / 8) * 8)
+    // While a call rings, the island grows into a proper call screen (big
+    // avatar, centered name, big buttons) instead of the flat notification-
+    // card shape everything else uses — it should read as the island
+    // switching modes, not another alert sliding past. It collapses back to
+    // a compact bar the moment the user answers, not when the PipeWire
+    // heuristic gets around to confirming it — waiting on that would leave
+    // the big screen sitting there through the whole "Bağlanıyor…" gap.
+    readonly property bool callBigView: callRinging && !callAnswering
     readonly property real targetWidth: expanded
-        ? Math.min(notificationVisible ? 480 : (deviceEventVisible ? 400 : 700), window.width - 40)
+        ? Math.min(notificationVisible ? 480 : (deviceEventVisible ? 400 : (callVisible ? (callBigView ? 340 : 480) : 700)), window.width - 40)
         : compactWidth
     readonly property real targetHeight: expanded
-        ? (notificationVisible ? 118 : (deviceEventVisible ? 92 : 300))
+        ? (notificationVisible ? (notificationHasReply ? 160 : 118) : (deviceEventVisible ? 92 : (callVisible ? (callBigView ? 260 : 118) : 300)))
         : 54
 
     Rectangle {
@@ -493,9 +856,11 @@ PanelWindow {
         }
 
         border.width: 1
-        border.color: window.expanded
-            ? "#33ffffff"
-            : Qt.rgba(1, 1, 1, 0.12 + window.playGlow * 0.22)
+        border.color: (window.callRinging || window.callAnswering)
+            ? Qt.rgba(0.35, 0.86, 0.55, 0.4 + Math.abs(Math.sin(window.visualPhase)) * 0.35)
+            : (window.expanded
+                ? "#33ffffff"
+                : Qt.rgba(1, 1, 1, 0.12 + window.playGlow * 0.22))
 
         gradient: Gradient {
             GradientStop { position: 0.0; color: "#f4191919" }
@@ -618,6 +983,7 @@ PanelWindow {
                 PixelClock {
                     visible: window.mediaStatus === "Stopped"
                     time: window.currentTime
+                    lang: window.lang
                     cell: 2
                     gap: 1
                     compact: true
@@ -674,7 +1040,7 @@ PanelWindow {
                 Text {
                     visible: window.mediaStatus !== "Stopped"
                     Layout.maximumWidth: 210
-                    text: window.islandState.media.title || "Medya"
+                    text: window.islandState.media.title || i18n.media
                     elide: Text.ElideRight
                     color: "#f2f2f2"
                     font.family: window.uiFont
@@ -682,13 +1048,9 @@ PanelWindow {
                     font.pixelSize: 14
                 }
 
-                Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 24; color: "#26ffffff" }
-
-                Row {
-                    visible: window.mediaStatus === "Stopped"
-                    spacing: 7
-                    Text { text: window.islandState.weather.icon || "󰖐"; color: "#e8e8e8"; font.family: window.iconFont; font.pixelSize: 18 }
-                    Text { text: window.islandState.weather.temp || "--°"; color: "#d0d0d0"; font.family: window.uiFont; font.weight: Font.DemiBold; font.pixelSize: 14 }
+                Rectangle {
+                    visible: window.mediaStatus !== "Stopped"
+                    Layout.preferredWidth: 1; Layout.preferredHeight: 24; color: "#26ffffff"
                 }
 
                 PixelText {
@@ -759,6 +1121,18 @@ PanelWindow {
                 // at-a-glance surface; repeating it here just turned the open
                 // panel into a status dashboard.
                 Item { Layout.fillWidth: true }
+
+                PanelChip {
+                    label: window.lang.toUpperCase()
+                    onTriggered: window.setLanguage("toggle")
+                }
+
+                PanelChip {
+                    visible: window.mediaStatus !== "Stopped"
+                    icon: "󰨖"
+                    lit: window.showLyrics
+                    onTriggered: window.showLyrics = !window.showLyrics
+                }
 
                 PanelChip {
                     visible: window.mediaStatus !== "Stopped"
@@ -846,7 +1220,7 @@ PanelWindow {
                                 spacing: 3
                                 Text {
                                     width: parent.width
-                                    text: window.islandState.media.title || "Bir şey çalmıyor"
+                                    text: window.islandState.media.title || i18n.nothingPlaying
                                     elide: Text.ElideRight
                                     color: "#ffffff"
                                     font.family: window.uiFont
@@ -883,32 +1257,25 @@ PanelWindow {
                             Text {
                                 Layout.fillWidth: true
                                 Layout.topMargin: 2
-                                text: window.islandState.media.artist || "Bilinmeyen sanatçı"
+                                text: window.islandState.media.artist || i18n.unknownArtist
                                 elide: Text.ElideRight
                                 color: "#989898"
                                 font.family: window.uiFont
                                 font.pixelSize: 11
                             }
-                            Text {
-                                Layout.fillWidth: true
-                                Layout.topMargin: 4
-                                visible: window.islandState.media.lyrics !== ""
-                                text: window.islandState.media.lyrics
-                                elide: Text.ElideRight
-                                color: "#767676"
-                                font.family: window.uiFont
-                                font.italic: true
-                                font.pixelSize: 10
-                            }
-
-                            // Music mode's own spectrum. The collapsed pill's
-                            // ribbon is hidden while the panel is open, so
-                            // without this the expanded view had no visualiser
-                            // at all.
+                            // Visualiser and lyrics share this slot and
+                            // cross-fade. Sharing it rather than stacking them
+                            // means toggling lyrics never changes the panel's
+                            // height, so nothing below shifts under the cursor.
+                            //
+                            // The collapsed pill's ribbon is hidden while the
+                            // panel is open, so without the spectrum here the
+                            // expanded view would have no visualiser at all.
                             Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 Layout.minimumHeight: 34
+                                clip: true
 
                                 Spectrum {
                                     anchors.centerIn: parent
@@ -919,6 +1286,95 @@ PanelWindow {
                                     peak: Math.max(6, height - 8)
                                     floorHeight: 3
                                     mirrored: true
+                                    opacity: window.showLyrics ? 0 : 1
+                                    visible: opacity > 0.01
+                                    Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                }
+
+                                Column {
+                                    id: lyricsPane
+                                    anchors.centerIn: parent
+                                    width: parent.width
+                                    spacing: 3
+                                    opacity: window.showLyrics ? 1 : 0
+                                    visible: opacity > 0.01
+                                    Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+                                    // Swapping three labels at once reads as a
+                                    // flicker, because nothing tells the eye
+                                    // that the block moved on by one line. The
+                                    // whole column rises into place instead, so
+                                    // a line change looks like the list
+                                    // scrolling — which is what it actually is.
+                                    //
+                                    // Driven as a plain number that the
+                                    // animation always returns to 0, so an
+                                    // interrupted run (seeking, track change)
+                                    // can never strand the column off-centre.
+                                    property real slide: 0
+                                    property real riseOpacity: 1
+                                    transform: Translate { y: lyricsPane.slide }
+
+                                    readonly property int lineIndex: window.currentLyricIndex
+                                    onLineIndexChanged: if (window.lyricsSynced) lyricRise.restart()
+
+                                    ParallelAnimation {
+                                        id: lyricRise
+                                        NumberAnimation {
+                                            target: lyricsPane; property: "slide"
+                                            from: 13; to: 0
+                                            duration: 380; easing.type: Easing.OutCubic
+                                        }
+                                        NumberAnimation {
+                                            target: lyricsPane; property: "riseOpacity"
+                                            from: 0.25; to: 1
+                                            duration: 320; easing.type: Easing.OutCubic
+                                        }
+                                        onRunningChanged: if (!running) {
+                                            lyricsPane.slide = 0
+                                            lyricsPane.riseOpacity = 1
+                                        }
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        horizontalAlignment: Text.AlignHCenter
+                                        text: window.lyricPrev
+                                        elide: Text.ElideRight
+                                        color: "#5f5f5f"
+                                        font.family: window.uiFont
+                                        font.pixelSize: 9
+                                        // Fades as it leaves rather than
+                                        // blinking out at the top of the slide.
+                                        opacity: 0.35 + lyricsPane.riseOpacity * 0.65
+                                    }
+                                    Text {
+                                        width: parent.width
+                                        horizontalAlignment: Text.AlignHCenter
+                                        text: window.lyricCurrent
+                                        elide: Text.ElideRight
+                                        color: window.lyricIsPlaceholder ? "#7a7a7a" : "#ffffff"
+                                        font.family: window.uiFont
+                                        font.weight: window.lyricIsPlaceholder ? Font.Normal : Font.Bold
+                                        font.italic: window.lyricIsPlaceholder
+                                        font.pixelSize: window.lyricIsPlaceholder ? 10 : 13
+                                        opacity: lyricsPane.riseOpacity
+                                        // Grows into focus as it becomes the
+                                        // current line, which is the cue that
+                                        // it is the one being sung.
+                                        scale: 0.94 + lyricsPane.riseOpacity * 0.06
+                                        Behavior on color { ColorAnimation { duration: 180 } }
+                                    }
+                                    Text {
+                                        width: parent.width
+                                        horizontalAlignment: Text.AlignHCenter
+                                        text: window.lyricNext
+                                        elide: Text.ElideRight
+                                        color: "#5f5f5f"
+                                        font.family: window.uiFont
+                                        font.pixelSize: 9
+                                        opacity: 0.35 + lyricsPane.riseOpacity * 0.65
+                                    }
                                 }
                             }
 
@@ -930,7 +1386,20 @@ PanelWindow {
                                 // of letting the slider claim them for seeking.
                                 focusPolicy: Qt.NoFocus
                                 from: 0
-                                to: Math.max(1, window.islandState.media.length || 1)
+                                // Browser tabs (YouTube via Firefox/Chrome MPRIS
+                                // included) routinely never report mpris:length
+                                // at all. `to` has to be *something* for the
+                                // Slider to compute visualPosition, but there is
+                                // no real fraction to show without a real total
+                                // — tying it to the position itself (an earlier
+                                // attempt at this) made value/to permanently
+                                // equal ~1, pinning the fill at the far end
+                                // forever instead of fixing anything. The fill
+                                // and handle are forced off below instead, so
+                                // an arbitrary `to` here never actually renders.
+                                to: window.mediaLengthKnown ? Math.max(1, window.islandState.media.length) : 1
+                                enabled: window.mediaLengthKnown
+                                opacity: enabled ? 1 : 0.45
 
                                 // Follow playback only when the user isn't
                                 // scrubbing, otherwise the poll fights the drag.
@@ -947,13 +1416,14 @@ PanelWindow {
                                     radius: 2
                                     color: "#2b2b2b"
                                     Rectangle {
-                                        width: seekSlider.visualPosition * parent.width
+                                        width: window.mediaLengthKnown ? seekSlider.visualPosition * parent.width : 0
                                         height: parent.height
                                         radius: 2
                                         color: "#ededed"
                                     }
                                 }
                                 handle: Rectangle {
+                                    visible: window.mediaLengthKnown
                                     x: seekSlider.leftPadding + seekSlider.visualPosition * (seekSlider.availableWidth - width)
                                     y: seekSlider.topPadding + seekSlider.availableHeight / 2 - height / 2
                                     width: 11
@@ -988,7 +1458,10 @@ PanelWindow {
                                 Layout.fillWidth: true
                                 Text { text: window.formatTime(window.mediaPosition); color: "#7f7f7f"; font.family: window.uiFont; font.pixelSize: 9 }
                                 Item { Layout.fillWidth: true }
-                                Text { text: window.formatTime(window.islandState.media.length); color: "#7f7f7f"; font.family: window.uiFont; font.pixelSize: 9 }
+                                Text {
+                                    text: window.mediaLengthKnown ? window.formatTime(window.islandState.media.length) : i18n.liveDuration
+                                    color: "#7f7f7f"; font.family: window.uiFont; font.pixelSize: 9
+                                }
                             }
 
                             RowLayout {
@@ -1043,6 +1516,7 @@ PanelWindow {
                         PixelClock {
                             anchors.centerIn: parent
                             time: window.currentTime
+                            lang: window.lang
                             cell: 8
                             gap: 2
                             color: "#f6f6f6"
@@ -1066,7 +1540,7 @@ PanelWindow {
                         spacing: 15
 
                         BarMeter {
-                            label: "SES"
+                            label: i18n.volumeShort
                             fontFamily: window.uiFont
                             iconFont: window.iconFont
                             icon: window.islandState.muted ? "󰝟" : "󰕾"
@@ -1078,7 +1552,7 @@ PanelWindow {
                             onIconClicked: window.run(["mute"])
                         }
                         BarMeter {
-                            label: "IŞIK"
+                            label: i18n.brightnessShort
                             fontFamily: window.uiFont
                             iconFont: window.iconFont
                             icon: "󰃠"
@@ -1088,7 +1562,7 @@ PanelWindow {
                             onMoved: v => window.runDirect(["brightnessctl", "set", v + "%"])
                         }
                         BarMeter {
-                            label: "MİK"
+                            label: i18n.micShort
                             fontFamily: window.uiFont
                             iconFont: window.iconFont
                             icon: window.islandState.micMuted ? "󰍭" : "󰍬"
@@ -1260,75 +1734,167 @@ PanelWindow {
             z: 18
             Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
-            RowLayout {
+            ColumnLayout {
                 anchors { fill: parent; leftMargin: 18; rightMargin: 22; topMargin: 14; bottomMargin: 18 }
-                spacing: 14
+                spacing: 10
 
-                Rectangle {
-                    Layout.preferredWidth: 50
-                    Layout.preferredHeight: 50
-                    Layout.alignment: Qt.AlignVCenter
-                    radius: 16
-                    color: window.notificationIcon !== "" ? "#1a1a1a" : "#f0f0f0"
-                    border.width: 1
-                    border.color: window.notificationIcon !== "" ? "#2effffff" : "#ffffff"
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 14
 
-                    Image {
-                        id: notificationLogo
-                        anchors.centerIn: parent
-                        width: 30; height: 30
-                        source: window.notificationIcon
-                        visible: window.notificationIcon !== "" && status === Image.Ready
-                        sourceSize.width: 64
-                        sourceSize.height: 64
-                        fillMode: Image.PreserveAspectFit
-                        asynchronous: true
-                        smooth: true
+                    Rectangle {
+                        Layout.preferredWidth: 50
+                        Layout.preferredHeight: 50
+                        Layout.alignment: Qt.AlignVCenter
+                        radius: 16
+                        color: window.notificationIcon !== "" ? "#1a1a1a" : "#f0f0f0"
+                        border.width: 1
+                        border.color: window.notificationIcon !== "" ? "#2effffff" : "#ffffff"
+
+                        Image {
+                            id: notificationLogo
+                            anchors.centerIn: parent
+                            width: 30; height: 30
+                            source: window.notificationIcon
+                            visible: window.notificationIcon !== "" && status === Image.Ready
+                            sourceSize.width: 64
+                            sourceSize.height: 64
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            smooth: true
+                        }
+
+                        Text {
+                            anchors.centerIn: parent
+                            visible: !notificationLogo.visible
+                            text: window.notificationApp.length > 0 ? window.notificationApp.charAt(0).toUpperCase() : "󰂚"
+                            color: "#0b0b0b"
+                            font.family: window.notificationApp.length > 0 ? window.uiFont : "Iosevka Nerd Font"
+                            font.weight: Font.Black
+                            font.pixelSize: 22
+                        }
                     }
 
-                    Text {
-                        anchors.centerIn: parent
-                        visible: !notificationLogo.visible
-                        text: window.notificationApp.length > 0 ? window.notificationApp.charAt(0).toUpperCase() : "󰂚"
-                        color: "#0b0b0b"
-                        font.family: window.notificationApp.length > 0 ? window.uiFont : "Iosevka Nerd Font"
-                        font.weight: Font.Black
-                        font.pixelSize: 22
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 2
+
+                        Text {
+                            text: window.notificationApp || i18n.notification
+                            color: "#8b8b8b"
+                            font.family: window.uiFont
+                            font.weight: Font.DemiBold
+                            font.capitalization: Font.AllUppercase
+                            font.letterSpacing: 1.2
+                            font.pixelSize: 9
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: window.notificationTitle || i18n.newNotification
+                            color: "#f5f5f5"
+                            font.family: window.uiFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 16
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: window.notificationBody || i18n.emptyNotification
+                            color: "#b2b2b2"
+                            font.family: window.uiFont
+                            font.pixelSize: 11
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                        }
                     }
                 }
 
-                ColumnLayout {
+                // Only appears when the sender actually attached a KDE-style
+                // "inline-reply" action — Quickshell strips that action out
+                // of the visible list itself and surfaces it as
+                // hasInlineReply/inlineReplyPlaceholder, so there is no
+                // guessing here about whether the app wants this.
+                RowLayout {
+                    id: replyRow
                     Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignVCenter
-                    spacing: 2
+                    visible: window.notificationHasReply
+                    spacing: 8
 
-                    Text {
-                        text: window.notificationApp || "Bildirim"
-                        color: "#8b8b8b"
-                        font.family: window.uiFont
-                        font.weight: Font.DemiBold
-                        font.capitalization: Font.AllUppercase
-                        font.letterSpacing: 1.2
-                        font.pixelSize: 9
-                    }
-                    Text {
+                    Rectangle {
                         Layout.fillWidth: true
-                        text: window.notificationTitle || "Yeni bildirim"
-                        color: "#f5f5f5"
-                        font.family: window.uiFont
-                        font.weight: Font.Bold
-                        font.pixelSize: 16
-                        elide: Text.ElideRight
+                        Layout.preferredHeight: 32
+                        radius: 10
+                        color: "#161616"
+                        border.width: 1
+                        border.color: replyField.activeFocus ? "#4affffff" : "#20ffffff"
+                        Behavior on border.color { ColorAnimation { duration: 140 } }
+
+                        TextField {
+                            id: replyField
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 10
+                            verticalAlignment: TextInput.AlignVCenter
+                            text: window.notificationReplyText
+                            placeholderText: window.notificationReplyPlaceholder !== ""
+                                ? window.notificationReplyPlaceholder : i18n.replyPlaceholder
+                            color: "#f2f2f2"
+                            placeholderTextColor: "#6f6f6f"
+                            font.family: window.uiFont
+                            font.pixelSize: 12
+                            background: Item {}
+                            leftPadding: 0
+                            rightPadding: 0
+                            topPadding: 0
+                            bottomPadding: 0
+                            selectByMouse: true
+
+                            onTextChanged: window.notificationReplyText = text
+                            onAccepted: window.sendNotificationReply()
+
+                            // A drafted reply must never vanish out from under
+                            // the person typing it — pause the auto-dismiss
+                            // countdown while focused, and only resume it if
+                            // they back out without sending.
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    notificationTimer.stop()
+                                    notificationProgress.pause()
+                                } else if (text === "") {
+                                    notificationTimer.restart()
+                                    notificationProgress.resume()
+                                }
+                            }
+                        }
                     }
-                    Text {
-                        Layout.fillWidth: true
-                        text: window.notificationBody || "Bildirim içeriği bulunmuyor."
-                        color: "#b2b2b2"
-                        font.family: window.uiFont
-                        font.pixelSize: 11
-                        wrapMode: Text.Wrap
-                        maximumLineCount: 2
-                        elide: Text.ElideRight
+
+                    Rectangle {
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        radius: 10
+                        opacity: window.notificationReplyText.trim() !== "" ? 1 : 0.35
+                        color: sendHit.containsMouse ? "#3a3a3a" : "#242424"
+                        Behavior on color { ColorAnimation { duration: 140 } }
+                        scale: sendHit.pressed ? 0.88 : 1
+                        Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "󰒊"
+                            color: "#f2f2f2"
+                            font.family: window.iconFont
+                            font.pixelSize: 15
+                        }
+
+                        MouseArea {
+                            id: sendHit
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            enabled: window.notificationReplyText.trim() !== ""
+                            onClicked: window.sendNotificationReply()
+                        }
                     }
                 }
             }
@@ -1363,6 +1929,214 @@ PanelWindow {
                 to: 0
                 duration: 5000
                 easing.type: Easing.Linear
+            }
+        }
+
+        // ---------------------------------------------------------- call card
+        // Two distinct layouts, not one card with bits toggled: a ringing call
+        // is a different mode, not another alert, so the island should read
+        // as switching into an actual call screen — big centered avatar with
+        // radar rings, then collapsing to a compact bar once audio confirms
+        // the call actually connected.
+        Item {
+            id: callCard
+            anchors.fill: parent
+            visible: opacity > 0.01
+            opacity: window.callVisible ? 1 : 0
+            scale: window.callVisible ? 1 : 0.92
+            z: 21
+            Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+            Behavior on scale { NumberAnimation { duration: 320; easing.type: Easing.OutBack; easing.overshoot: 0.7 } }
+
+            readonly property bool live: !!window.islandState.call.active
+            readonly property bool ringing: !live && !window.callAnswering
+            readonly property real radarPhase: window.visualPhase / (Math.PI * 2)
+
+            property real durationPop: 1
+            onLiveChanged: if (live) durationPulse.restart()
+            SequentialAnimation {
+                id: durationPulse
+                NumberAnimation { target: callCard; property: "durationPop"; from: 0.55; to: 1.16; duration: 190; easing.type: Easing.OutBack; easing.overshoot: 2 }
+                NumberAnimation { target: callCard; property: "durationPop"; to: 1; duration: 150; easing.type: Easing.OutCubic }
+            }
+
+            // -------------------------------------------------- ringing / connecting
+            Item {
+                id: bigView
+                anchors.fill: parent
+                visible: opacity > 0.01
+                opacity: window.callBigView ? 1 : 0
+                scale: window.callBigView ? 1 : 0.9
+                Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                Behavior on scale { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 18
+                    spacing: 6
+
+                    Item { Layout.preferredHeight: 2 }
+
+                    Item {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 78
+                        Layout.preferredHeight: 78
+
+                        Repeater {
+                            model: callCard.ringing ? 3 : 0
+                            Rectangle {
+                                required property int index
+                                readonly property real p: (callCard.radarPhase + index / 3) % 1
+                                anchors.centerIn: parent
+                                width: 60 + p * 46
+                                height: width
+                                radius: width / 2
+                                color: "transparent"
+                                border.width: 1.4
+                                border.color: Qt.rgba(0.4, 0.88, 0.58, (1 - p) * 0.5)
+                            }
+                        }
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 62; height: 62; radius: 31
+                            color: "#171717"
+                            border.width: 1
+                            border.color: callCard.live ? "#3affffff" : "#4a5ce97e"
+                            Behavior on border.color { ColorAnimation { duration: 220 } }
+                            Text {
+                                anchors.centerIn: parent
+                                text: window.callAnswering ? "󰏶" : "󰏷"
+                                rotation: callCard.ringing ? Math.sin(window.visualPhase * 3) * 9 : 0
+                                color: "#f0f0f0"
+                                font.family: window.iconFont
+                                font.pixelSize: 24
+                            }
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 8
+                        horizontalAlignment: Text.AlignHCenter
+                        text: window.callDisplayTitle
+                        color: "#f7f7f7"
+                        font.family: window.uiFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 18
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        text: window.callAnswering ? i18n.callConnecting : (window.callDisplayApp + " · " + i18n.incomingCall)
+                        color: "#9c9c9c"
+                        font.family: window.uiFont
+                        font.pixelSize: 11
+                    }
+
+                    Item { Layout.fillHeight: true }
+
+                    RowLayout {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.bottomMargin: 4
+                        spacing: 30
+                        opacity: callCard.ringing ? 1 : 0
+                        scale: callCard.ringing ? 1 : 0.6
+                        visible: opacity > 0.01
+                        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 1.3 } }
+
+                        CallButton {
+                            accept: true
+                            size: 46
+                            label: i18n.accept
+                            entranceDelay: 40
+                            entranceActive: callCard.ringing
+                            callEnabled: window.callAcceptId !== ""
+                            onTriggered: window.answerCall()
+                        }
+                        CallButton {
+                            accept: false
+                            size: 46
+                            label: i18n.decline
+                            entranceDelay: 120
+                            entranceActive: callCard.ringing
+                            callEnabled: window.callDeclineId !== ""
+                            onTriggered: window.rejectCall()
+                        }
+                    }
+                }
+            }
+
+            // ---------------------------------------------------------- live / talking
+            Item {
+                id: compactView
+                anchors.fill: parent
+                visible: opacity > 0.01
+                opacity: window.callBigView ? 0 : 1
+                scale: window.callBigView ? 0.92 : 1
+                Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                Behavior on scale { NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: 0.5 } }
+
+                RowLayout {
+                    anchors { fill: parent; leftMargin: 18; rightMargin: 22; topMargin: 14; bottomMargin: 18 }
+                    spacing: 14
+
+                    Item {
+                        Layout.preferredWidth: 50
+                        Layout.preferredHeight: 50
+                        Layout.alignment: Qt.AlignVCenter
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 50; height: 50; radius: 25
+                            color: "#1a1a1a"
+                            border.width: 1
+                            border.color: "#2effffff"
+                            Text {
+                                anchors.centerIn: parent
+                                text: "󰏶"
+                                color: "#ededed"
+                                font.family: window.iconFont
+                                font.pixelSize: 20
+                            }
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 2
+
+                        Text {
+                            text: window.callDisplayApp
+                            color: "#8b8b8b"
+                            font.family: window.uiFont
+                            font.weight: Font.DemiBold
+                            font.capitalization: Font.AllUppercase
+                            font.letterSpacing: 1.2
+                            font.pixelSize: 9
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: window.callDisplayTitle
+                            color: "#f5f5f5"
+                            font.family: window.uiFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 16
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            scale: callCard.durationPop
+                            transformOrigin: Item.Left
+                            text: callCard.live ? window.formatTime(window.islandState.call.duration) : i18n.callConnecting
+                            color: "#b2b2b2"
+                            font.family: window.uiFont
+                            font.pixelSize: 11
+                        }
+                    }
+                }
             }
         }
 
@@ -1510,13 +2284,81 @@ PanelWindow {
         }
     }
 
+    component CallButton: Column {
+        id: callBtn
+        property bool accept: true
+        property bool callEnabled: true
+        property real size: 38
+        property string label: ""
+        // Lets two buttons in the same row pop in one after another instead
+        // of both snapping in at once — small, but it's the difference
+        // between "a card appeared" and "controls are arriving".
+        property int entranceDelay: 0
+        property bool entranceActive: true
+        signal triggered()
+
+        spacing: 6
+
+        property real popScale: 1
+        onEntranceActiveChanged: if (entranceActive) entrancePop.restart()
+        SequentialAnimation {
+            id: entrancePop
+            PauseAnimation { duration: callBtn.entranceDelay }
+            NumberAnimation { target: callBtn; property: "popScale"; from: 0.5; to: 1.18; duration: 170; easing.type: Easing.OutBack; easing.overshoot: 2.2 }
+            NumberAnimation { target: callBtn; property: "popScale"; to: 1; duration: 130; easing.type: Easing.OutCubic }
+        }
+
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            implicitWidth: callBtn.size
+            implicitHeight: callBtn.size
+            radius: callBtn.size / 2
+            opacity: callBtn.callEnabled ? 1 : 0.35
+            color: callBtn.accept
+                ? (btnHit.containsMouse ? "#3aa863" : "#276b41")
+                : (btnHit.containsMouse ? "#c24a4e" : "#7a3235")
+            scale: btnHit.pressed ? 0.88 : callBtn.popScale
+            Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+            Behavior on color { ColorAnimation { duration: 140 } }
+
+            Text {
+                anchors.centerIn: parent
+                text: callBtn.accept ? "󰏲" : "󰏵"
+                color: "#f5f5f5"
+                font.family: window.iconFont
+                font.pixelSize: callBtn.size * 0.4
+            }
+
+            MouseArea {
+                id: btnHit
+                anchors.fill: parent
+                hoverEnabled: true
+                enabled: callBtn.callEnabled
+                onClicked: callBtn.triggered()
+            }
+        }
+
+        Text {
+            visible: callBtn.label !== ""
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: callBtn.label
+            color: "#c8c8c8"
+            font.family: window.uiFont
+            font.pixelSize: 10
+        }
+    }
+
     component PanelChip: Rectangle {
         id: chip
         property string icon: ""
+        // Set instead of `icon` for chips whose whole point is to show a word
+        // rather than a symbol — the language switch has to say which language
+        // it is currently in, which no icon can do.
+        property string label: ""
         property bool lit: false
         signal triggered()
 
-        implicitWidth: 28
+        implicitWidth: chip.label !== "" ? Math.max(28, chipLabel.implicitWidth + 12) : 28
         implicitHeight: 24
         radius: 9
         color: chip.lit ? "#ededed" : (chipHit.containsMouse ? "#26ffffff" : "#14ffffff")
@@ -1525,11 +2367,14 @@ PanelWindow {
         Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 
         Text {
+            id: chipLabel
             anchors.centerIn: parent
-            text: chip.icon
+            text: chip.label !== "" ? chip.label : chip.icon
             color: chip.lit ? "#0b0b0b" : "#d6d6d6"
-            font.family: window.iconFont
-            font.pixelSize: 12
+            font.family: chip.label !== "" ? window.uiFont : window.iconFont
+            font.weight: chip.label !== "" ? Font.Bold : Font.Normal
+            font.letterSpacing: chip.label !== "" ? 0.5 : 0
+            font.pixelSize: chip.label !== "" ? 10 : 12
             Behavior on color { ColorAnimation { duration: 160 } }
         }
         MouseArea {

@@ -63,9 +63,22 @@ var GLYPHS = {
 
 var ROWS = 7
 
-var DAYS = ["PAZAR", "PAZARTESİ", "SALI", "ÇARŞAMBA", "PERŞEMBE", "CUMA", "CUMARTESİ"]
-var MONTHS = ["OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN",
-              "TEMMUZ", "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK"]
+// Spelled out per language rather than taken from Qt's locale formatting,
+// because the bitmap font above only has the glyphs listed there — a locale
+// that reaches for anything else would silently render as blanks.
+var DAYS = {
+    tr: ["PAZAR", "PAZARTESİ", "SALI", "ÇARŞAMBA", "PERŞEMBE", "CUMA", "CUMARTESİ"],
+    en: ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]
+}
+var MONTHS = {
+    tr: ["OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN",
+         "TEMMUZ", "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK"],
+    en: ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+         "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"]
+}
+
+function days(lang) { return DAYS[lang] !== undefined ? DAYS[lang] : DAYS.en }
+function months(lang) { return MONTHS[lang] !== undefined ? MONTHS[lang] : MONTHS.en }
 
 function glyph(ch) {
     var g = GLYPHS[ch]
@@ -94,18 +107,18 @@ function pad2(value) {
     return value < 10 ? "0" + value : String(value)
 }
 
-function dayName(date) {
-    return DAYS[date.getDay()]
+function dayName(date, lang) {
+    return days(lang)[date.getDay()]
 }
 
-function dateLine(date) {
-    return pad2(date.getDate()) + " " + MONTHS[date.getMonth()]
+function dateLine(date, lang) {
+    return pad2(date.getDate()) + " " + months(lang)[date.getMonth()]
 }
 
-function fullDateLine(date) {
-    return dayName(date) + " · " + dateLine(date)
+function fullDateLine(date, lang) {
+    return dayName(date, lang) + " · " + dateLine(date, lang)
 }
 
-function shortDateLine(date) {
-    return pad2(date.getDate()) + " " + MONTHS[date.getMonth()].substring(0, 3)
+function shortDateLine(date, lang) {
+    return pad2(date.getDate()) + " " + months(lang)[date.getMonth()].substring(0, 3)
 }
