@@ -1,0 +1,16 @@
+# Runtime state written by backend.sh (lives under XDG_RUNTIME_DIR in normal
+# use, but listed here in case the project is run from a checkout).
+*.log
+*.qslog
+camera.jpg
+camera.pid
+slow.json
+weather.json
+network.state
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
