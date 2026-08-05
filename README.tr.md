@@ -30,10 +30,18 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 <table>
 <tr>
 <td width="50%"><img src="docs/screenshots/pill.png" alt="Kapalı pill"><br><sub><b>Kapalı</b> — kapak, başlık, pixel saat, pil, mikrofon/kamera göstergeleri, spektrum şeridi</sub></td>
-<td width="50%"><img src="docs/screenshots/notification.png" alt="Bildirim kartı"><br><sub><b>Bildirim</b> — çözümlenmiş uygulama simgesi ve kapanma geri sayımı</sub></td>
+<td width="50%"><img src="docs/screenshots/media.png" alt="Medya paneli"><br><sub><b>Medya</b> — kapak, seek, aktarım, aynalanmış spektrum, ölçerler</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/media.png" alt="Medya paneli"><br><sub><b>Medya</b> — kapak, seek, aktarım, aynalanmış spektrum, ölçerler</sub></td>
+<td><img src="docs/screenshots/lyrics.png" alt="Senkronize şarkı sözleri"><br><sub><b>Sözler</b> — spektrum yerine zamanla senkronize satırlar, o an çalan vurgulu</sub></td>
+<td><img src="docs/screenshots/clock.png" alt="Pixel-art saat"><br><sub><b>Saat</b> — aynı 5×7 font, İngilizce veya Türkçe</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/call.png" alt="Gelen arama ekranı"><br><sub><b>Arama</b> — radar halkaları ve gerçek kabul/reddet, bağlanınca bara küçülür</sub></td>
+<td><img src="docs/screenshots/notification.png" alt="Bildirim kartı"><br><sub><b>Bildirim</b> — çözümlenmiş uygulama simgesi ve kapanma geri sayımı</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/reply.png" alt="Satır içi yanıtlı bildirim"><br><sub><b>Yanıt</b> — destekleyen bildirimler için metin kutusu ve gönder düğmesi</sub></td>
 <td><img src="docs/screenshots/device.png" alt="Mikrofon gizlilik kartı"><br><sub><b>Gizlilik</b> — mikrofon veya kamera her açılıp kapandığında belirir</sub></td>
 </tr>
 </table>
@@ -46,14 +54,36 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 - **Gerçek spektrum analizörü** — [`cava`](https://github.com/karlstav/cava) ile
   beslenir, bas bantlar ortada buluşacak şekilde aynalanır. cava yoksa veya panel
   kapalıysa sentetik bir eğriye düşer.
+- **Senkronize şarkı sözleri** — MPRIS'in bir sözler alanı var ama neredeyse
+  hiçbir oynatıcı doldurmuyor (Spotify boş dize döndürüyor), bu yüzden satırlar
+  hesap ya da anahtar istemeyen [LRCLIB](https://lrclib.net)'den geliyor. Parça
+  başına bir kez indirilip diske önbelleğe alınıyor, sözü olmayanlar da dahil —
+  böylece bir parça her çalışta yeniden sorgulanmıyor, ve hiçbiri yoklama
+  (snapshot) yolunda olmadığı için döngü ağa hiç dokunmuyor.
+- **Gelen aramalar** — bildirimin kendi kabul/reddet aksiyonlarından tanınır;
+  cevaplamak ya da reddetmek, gönderen uygulamada sahte girdi üretmek yerine
+  doğrudan o D-Bus aksiyonlarını çağırır. Bir aramanın gerçekten *canlı* olup
+  olmadığı ise PipeWire'dan çıkarılır: aynı anda bir çalma ve bir kayıt akışı
+  tutan uygulama, tanım itibarıyla aramadadır — bu da süre sayacını doğru
+  tutar ve başka bir cihazdan cevaplanan aramayı da kapsar.
+- **Satır içi yanıt** — KDE tarzı bir `inline-reply` aksiyonu taşıyan bildirimler
+  bir metin kutusu ve gönder düğmesi alır; gerçek `NotificationReplied` D-Bus
+  sinyaline bağlıdır.
+- **İngilizce ve Türkçe** — panelde bir çip veya IPC ile değiştirilebilir, ve
+  yeniden başlatmalar arasında hatırlanır. Her metin tek bir dosyada; üçüncü
+  bir dil eklemek arayüzde sabit metin aramak değil, oradaki her satıra bir
+  dal eklemek demektir.
 - **Pixel-art saat** — dormant bir LED ızgarası üzerine canvas ile çizilen 5×7
   bitmap yazı tipi. Rakamlar değişince satır satır dikey olarak yuvarlanır.
-  Türkçe Ç/Ğ/İ/Ö/Ş/Ü dahildir.
+  Türkçe Ç/Ğ/İ/Ö/Ş/Ü dahildir, gün/ay adları da aktif dile göre değişir.
 - **Canlı cihaz göstergeleri** — PipeWire mikrofonu ve V4L2 kamerası her
   başladığında/durduğunda bir kart yükseltir. Bunlar gizlilik göstergeleri
   olduğu için ada kapalıyken bile makul bir hızda yoklanır.
-- **Bildirimler** — bir uygulama IPC üzerinden kart gönderebilir; kendi simgesiyle
-  ya da freedesktop simge adı çözümlemesiyle.
+- **Bildirimler** — bir uygulama IPC üzerinden kart gönderebilir; kendi
+  simgesiyle — gönderenin gerçek görselini genel uygulama simgesi yerine
+  öncelikli tutar, bu da bir tarayıcı bildiriminin sitenin favicon'unu mu
+  yoksa tarayıcının kendi simgesini mi göstereceğinin farkıdır — ya da
+  freedesktop simge adı çözümlemesiyle.
 - **Ölçerler** — ses, parlaklık ve mikrofon kazancı sürüklenebilir segment
   çubukları olarak (`wpctl` / `brightnessctl`).
 - **Hava durumu ve pil** — IP konumuyla Open-Meteo, 15 dakika önbelleklenir;
@@ -66,7 +96,7 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 | | |
 | --- | --- |
 | **Zorunlu** | [Quickshell](https://quickshell.outfoxxed.me/) 0.3+, Hyprland (veya layer-shell destekleyen başka bir wlroots bileşik yöneticisi), `jq`, bir Nerd Font |
-| **İsteğe bağlı** | `playerctl` (medya), `wpctl` + `pactl` (ses, mikrofon algılama), `brightnessctl`, `cava` (spektrum), `bluetoothctl`, `upower`, `curl` (hava durumu), `fuser` (kamera algılama) |
+| **İsteğe bağlı** | `playerctl` (medya), `wpctl` + `pactl` (ses, mikrofon algılama, arama algılama), `brightnessctl`, `cava` (spektrum), `bluetoothctl`, `upower`, `curl` (hava durumu, şarkı sözleri, `mpris:artUrl` vermeyen tarayıcı sekmeleri için kapak görseli), `fuser` (kamera algılama) |
 
 Eksik olan her şey ilgili bölümü boş bırakır ya da yedeğe düşer — hiçbiri
 projeyi çökertmez.
@@ -141,12 +171,102 @@ qs -p <shell.qml> ipc call dynamicIsland open
 qs -p <shell.qml> ipc call dynamicIsland close
 qs -p <shell.qml> ipc call dynamicIsland activity "herhangi bir metin"
 qs -p <shell.qml> ipc call dynamicIsland notify <uygulama> <başlık> <gövde> <simge>
+qs -p <shell.qml> ipc call dynamicIsland notifyWithActions <uygulama> <başlık> <gövde> <simge> <actionsJson> <uid> <hasInlineReply> <inlineReplyPlaceholder>
 qs -p <shell.qml> ipc call dynamicIsland deviceEvent <microphone|camera> <true|false> <değer>
 qs -p <shell.qml> ipc call dynamicIsland lyrics
 qs -p <shell.qml> ipc call dynamicIsland language <tr|en|toggle>
+qs -p <shell.qml> ipc call dynamicIsland dismissCall
 ```
 
-Bildirimleri adaya yönlendirmek için `notify`'ı bildirim sunucunuza bağlayın.
+Düz bildirimleri adaya yönlendirmek için `notify`'ı bildirim sunucunuza bağlayın.
+Aramalar ve satır içi yanıt yerine `notifyWithActions` ister, ve sunucu
+tarafında biraz bağlantı gerektirir; bir sonraki bölüme bakın — özellikle
+`actionsJson` komut satırında elle oluşturulacak bir şey değil.
+
+`dismissCall`, cevaplamadan/reddetmeden gelen arama ekranını kapatır — bir
+arama, gönderen bildirimin `expire_timeout`'undan bağımsız olarak kendi
+zamanlayıcısında çalar; yanlışlıkla tetiklenmiş biri dahil, erken çıkmanın
+tek yolu budur.
+
+### Aramalar ve satır içi yanıt
+
+İkisi de aynı ek IPC fonksiyonuna biner:
+
+```
+notifyWithActions(app, title, body, icon, actionsJson, uid, hasInlineReply, inlineReplyPlaceholder)
+```
+
+`actionsJson`, `base64(JSON.stringify([{id, text}, ...]))` — **ham JSON değil**.
+`quickshell ipc call`, düz bir `[...]` şeklindeki argümanı üst seviye
+virgüllerden bölerek genişletir; bu, iki veya daha fazla aksiyonu olan her şey
+için argüman listesini sessizce yanlış sayar (ve `"[]"`'nin kendisini sıfır
+argüman olarak okur). Base64 asla `[` ile başlamadığı için bunu hiç tetiklemez.
+
+Ada, gelen bir aramayı bildirimin kendi kabul/reddet aksiyonlarından tanır ve
+cevaplama/reddetmeyi o aynı aksiyonlar üzerinden yapar — gönderen uygulamada
+asla sahte girdi üretmez. Bu da `notifyWithActions`'ın gerçek aksiyonlarla ve
+gerçek bir bildirim başına `uid` ile beslenmesi gerektiği anlamına gelir; bu,
+`backend.sh`'nin tek başına üretebileceğinden fazlasıdır: bu proje adanın
+kendisidir, bir bildirim sunucusu değil — o sunucu, adayı barındıran hangi
+Quickshell yapılandırmasıysa onda yaşamalı. Minimal biri şöyle görünür:
+
+```qml
+// Shell.qml (veya shell'inizin Main.qml'i her neredeyse)
+import Quickshell.Services.Notifications
+
+NotificationServer {
+    id: notifications
+    actionsSupported: true
+    imageSupported: true
+    inlineReplySupported: true   // hasInlineReply'nin hiç true olabilmesi için gerekli
+
+    property var live: ({})
+    property int counter: 0
+
+    onNotification: (n) => {
+        n.tracked = true
+        counter++
+        live[counter] = n
+
+        let actions = []
+        if (n.actions) {
+            for (let i = 0; i < n.actions.length; i++)
+                actions.push({ id: n.actions[i].identifier, text: n.actions[i].text })
+        }
+
+        Quickshell.execDetached(["quickshell", "-p", "<shell.qml>",
+            "ipc", "call", "dynamicIsland", "notifyWithActions",
+            n.appName, n.summary, n.body,
+            n.image !== "" ? n.image : n.appIcon,   // gerçek görseli uygulama simgesine tercih et
+            Qt.btoa(JSON.stringify(actions)), String(counter),
+            n.hasInlineReply ? "true" : "false", n.inlineReplyPlaceholder])
+    }
+}
+
+// Bir arama cevaplandığında, reddedildiğinde ya da yanıtlandığında adanın
+// geri çağırdığı ikinci bir IPC hedefi.
+IpcHandler {
+    target: "notificationBridge"
+
+    function invokeAction(uid: string, actionId: string): void {
+        let n = notifications.live[uid]
+        if (!n || !n.actions) return
+        for (let i = 0; i < n.actions.length; i++) {
+            if (n.actions[i].identifier === actionId) { n.actions[i].invoke(); break }
+        }
+    }
+
+    function sendInlineReply(uid: string, text: string): void {
+        let n = notifications.live[uid]
+        if (n && n.hasInlineReply) n.sendInlineReply(text)
+    }
+}
+```
+
+Ada, `notificationBridge`'i kendi hedefine verilen aynı `-p` yolu üzerinden
+geri çağırır; yani iki handler'ın da o tek yoldan erişilebilir olması gerekir
+— aynı dosyada yaşamalarına gerek yok, sadece aynı çalışan Quickshell
+örneğinde.
 
 ### Dil
 
@@ -183,12 +303,19 @@ ediyormuş gibi yapmak yerine senkronize olmadığı belirtilir.
 Main.qml                 ShellRoot giriş noktası
 └── DynamicIslandHost    Quickshell.screens üzerinde Variants — monitör başına bir ada
     └── DynamicIsland    Yüzey: durum makinesi, yerleşim, tüm animasyonlar
+        ├── Strings      Her kullanıcıya görünen metin, İngilizce ve Türkçe
         ├── BarMeter     Sürüklenebilir segment ölçer (ses / parlaklık / mikrofon)
         ├── PixelClock   Pixel saati, saniyeleri ve tarih satırını birleştirir
         │   └── PixelText  Dikey rakam yuvarlamalı canvas bitmap metin motoru
-        │       └── pixelfont.js  5×7 glif tablosu + Türkçe gün/ay adları
-        └── backend.sh   Poll başına tek bir JSON anlık görüntüsü
+        │       └── pixelfont.js  5×7 glif tablosu + dile göre gün/ay adları
+        └── backend.sh   Poll başına tek bir JSON anlık görüntüsü, + istek üzerine şarkı sözü çekimi
 ```
+
+Aramalar ve satır içi yanıt, "her şey bu dizinde" kuralının istisnasıdır:
+gerçek bir `NotificationServer` ve `notifyWithActions`'ı besleyen bir
+`notificationBridge` IpcHandler'ı gerektirirler; bunlar `backend.sh`'de değil,
+adayı barındıran Quickshell yapılandırmasında yaşar. Yukarıdaki
+[Aramalar ve satır içi yanıt](#aramalar-ve-satır-içi-yanıt) bölümüne bakın.
 
 `backend.sh snapshot` tüm arayüz durumunu tek bir JSON nesnesi olarak yayar.
 Pahalı işler (hava durumu, bluetooth, UPower, kamera algılama) kilitli bir arka
@@ -210,18 +337,13 @@ ve donmuş çubuklar bırakır.
 animasyonu ilerleyemeden yeniden hedefler ve spektrumu hareketsiz bir çubuk
 sırasına düzler.
 
-## Yerelleştirme
-
-Arayüz metinleri Türkçedir ve `DynamicIsland.qml` içinde satır içi durur.
-`pixelfont.js` içindeki pixel font Türkçe gün ve ay adlarını taşır. İkisi de
-kolayca değiştirilebilir.
-
 ## Teşekkürler
 
 - outfoxxed tarafından [Quickshell](https://quickshell.outfoxxed.me/)
 - Davranışlar [`boring.notch`](https://github.com/TheBoredTeam/boring.notch)'tan uyarlandı
 - [Bricolage Grotesque](https://github.com/ateliertriay/bricolage) (OFL 1.1, dahil)
 - Spektrum verisi için [cava](https://github.com/karlstav/cava)
+- Şarkı sözleri için [LRCLIB](https://lrclib.net)
 
 ## Lisans
 

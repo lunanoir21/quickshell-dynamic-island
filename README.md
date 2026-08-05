@@ -30,10 +30,18 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 <table>
 <tr>
 <td width="50%"><img src="docs/screenshots/pill.png" alt="Collapsed pill"><br><sub><b>Collapsed</b> — cover, title, pixel clock, battery, mic/camera indicators, spectrum ribbon</sub></td>
-<td width="50%"><img src="docs/screenshots/notification.png" alt="Notification card"><br><sub><b>Notification</b> — resolved app icon and a countdown to dismissal</sub></td>
+<td width="50%"><img src="docs/screenshots/media.png" alt="Media panel"><br><sub><b>Media</b> — cover, seek, transport, mirrored spectrum, meters</sub></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/media.png" alt="Media panel"><br><sub><b>Media</b> — cover, seek, transport, mirrored spectrum, meters</sub></td>
+<td><img src="docs/screenshots/lyrics.png" alt="Synced lyrics"><br><sub><b>Lyrics</b> — time-synced lines in place of the spectrum, current line lit</sub></td>
+<td><img src="docs/screenshots/clock.png" alt="Pixel-art clock"><br><sub><b>Clock</b> — the same 5×7 font, in English or Turkish</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/call.png" alt="Incoming call screen"><br><sub><b>Call</b> — radar rings and real answer/decline, folds to a bar once connected</sub></td>
+<td><img src="docs/screenshots/notification.png" alt="Notification card"><br><sub><b>Notification</b> — resolved app icon and a countdown to dismissal</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/reply.png" alt="Notification with inline reply"><br><sub><b>Reply</b> — a field and send button for notifications that support it</sub></td>
 <td><img src="docs/screenshots/device.png" alt="Microphone privacy card"><br><sub><b>Privacy</b> — raised whenever the mic or camera starts or stops</sub></td>
 </tr>
 </table>
@@ -46,14 +54,36 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 - **Real spectrum analyser** — driven by [`cava`](https://github.com/karlstav/cava),
   mirrored around the centre so the low bands meet in the middle. Falls back to a
   synthetic curve when cava is unavailable or the panel is closed.
+- **Synced lyrics** — MPRIS has a lyrics field, but essentially nothing fills it
+  in (Spotify reports it as an empty string), so lines come from
+  [LRCLIB](https://lrclib.net) instead, no account or key needed. Fetched once
+  per track and cached on disk, misses included, so a track without lyrics is
+  never looked up again on every play — and never on the poll path, so the
+  snapshot loop stays network-free.
+- **Incoming calls** — recognised from the notification's own accept/decline
+  actions, so answering or declining invokes those same D-Bus actions rather
+  than faking input at the sending app. Whether a call is actually *live* is
+  inferred from PipeWire instead: an app holding a playback and a capture
+  stream open at once is, by construction, mid-call, which is what makes the
+  timer honest and also covers a call answered on another device.
+- **Inline reply** — notifications carrying a KDE-style `inline-reply` action
+  get a text field and a send button, wired to the real
+  `NotificationReplied` D-Bus signal.
+- **English and Turkish** — switchable from a chip in the panel or over IPC,
+  and remembered across restarts. Every string lives in one file, so a third
+  language is a matter of adding one branch per line there, not hunting
+  through the UI for literals.
 - **Pixel-art clock** — a 5×7 bitmap font rendered to a canvas over a dormant LED
   grid. Digits roll vertically one pixel row at a time when they change. Turkish
-  Ç/Ğ/İ/Ö/Ş/Ü are included.
+  Ç/Ğ/İ/Ö/Ş/Ü are included, and the day/month names follow whichever of the two
+  languages is active.
 - **Live device indicators** — PipeWire microphone and V4L2 camera use raise a
   card the moment either starts or stops. These are privacy indicators, so they
   keep polling at a reasonable rate even while the island is collapsed.
-- **Notifications** — an app can push a card through IPC, with its own icon or a
-  freedesktop icon-name lookup.
+- **Notifications** — an app can push a card through IPC, with its own icon —
+  preferring the sender's actual image over its generic app icon, which is the
+  difference between a browser notification showing the site's favicon or the
+  browser's — or a freedesktop icon-name lookup.
 - **Meters** — volume, brightness and microphone gain as draggable segment bars
   (`wpctl` / `brightnessctl`).
 - **Weather and battery** — Open-Meteo with IP geolocation, cached for 15 minutes;
@@ -66,7 +96,7 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 | | |
 | --- | --- |
 | **Required** | [Quickshell](https://quickshell.outfoxxed.me/) 0.3+, Hyprland (or another wlroots compositor with layer-shell), `jq`, a Nerd Font |
-| **Optional** | `playerctl` (media), `wpctl` + `pactl` (audio, mic detection), `brightnessctl`, `cava` (spectrum), `bluetoothctl`, `upower`, `curl` (weather), `fuser` (camera detection) |
+| **Optional** | `playerctl` (media), `wpctl` + `pactl` (audio, mic detection, call detection), `brightnessctl`, `cava` (spectrum), `bluetoothctl`, `upower`, `curl` (weather, lyrics, and thumbnails for browser tabs with no `mpris:artUrl`), `fuser` (camera detection) |
 
 Anything missing simply leaves its section empty or falls back — nothing hard-fails.
 
@@ -141,13 +171,103 @@ qs -p <shell.qml> ipc call dynamicIsland open
 qs -p <shell.qml> ipc call dynamicIsland close
 qs -p <shell.qml> ipc call dynamicIsland activity "any text"
 qs -p <shell.qml> ipc call dynamicIsland notify <app> <title> <body> <icon>
+qs -p <shell.qml> ipc call dynamicIsland notifyWithActions <app> <title> <body> <icon> <actionsJson> <uid> <hasInlineReply> <inlineReplyPlaceholder>
 qs -p <shell.qml> ipc call dynamicIsland deviceEvent <microphone|camera> <true|false> <value>
 qs -p <shell.qml> ipc call dynamicIsland lyrics
 qs -p <shell.qml> ipc call dynamicIsland language <tr|en|toggle>
+qs -p <shell.qml> ipc call dynamicIsland dismissCall
 ```
 
-Wire `notify` into your notification daemon to route notifications through the
-island.
+Wire `notify` into your notification daemon to route plain notifications
+through the island. Calls and inline reply need `notifyWithActions` instead,
+and a bit of wiring on the daemon side; see the next section — `actionsJson`
+in particular is not something to hand-construct on a command line.
+
+`dismissCall` ends an incoming-call screen without answering or declining it —
+a call rings on its own timer independent of the sending notification's
+`expire_timeout`, so this is the only way to back one out early, including one
+raised by mistake.
+
+### Calls and inline reply
+
+Both ride on the same extra IPC function:
+
+```
+notifyWithActions(app, title, body, icon, actionsJson, uid, hasInlineReply, inlineReplyPlaceholder)
+```
+
+`actionsJson` is `base64(JSON.stringify([{id, text}, ...]))` — **not** raw
+JSON. `quickshell ipc call` expands any bare `[...]`-shaped argument by
+splitting it on top-level commas, which silently miscounts the argument list
+for anything with two or more actions (and reads `"[]"` itself as zero
+arguments). Base64 never starts with `[`, so it never triggers that.
+
+The island recognises an incoming call from the notification's own
+accept/decline actions and answers or declines through those same actions —
+it never fakes input at the sending app. That means `notifyWithActions` has
+to be fed real actions and a real per-notification `uid` from an actual
+`NotificationServer`, which is more than `backend.sh` alone can produce: this
+project is the island itself, not a notification daemon, so that server has
+to live in whatever Quickshell config hosts the island. A minimal one looks
+like this:
+
+```qml
+// Shell.qml (or wherever your shell's Main.qml lives)
+import Quickshell.Services.Notifications
+
+NotificationServer {
+    id: notifications
+    actionsSupported: true
+    imageSupported: true
+    inlineReplySupported: true   // required for hasInlineReply to ever be true
+
+    property var live: ({})
+    property int counter: 0
+
+    onNotification: (n) => {
+        n.tracked = true
+        counter++
+        live[counter] = n
+
+        let actions = []
+        if (n.actions) {
+            for (let i = 0; i < n.actions.length; i++)
+                actions.push({ id: n.actions[i].identifier, text: n.actions[i].text })
+        }
+
+        Quickshell.execDetached(["quickshell", "-p", "<shell.qml>",
+            "ipc", "call", "dynamicIsland", "notifyWithActions",
+            n.appName, n.summary, n.body,
+            n.image !== "" ? n.image : n.appIcon,   // prefer the real image over the app icon
+            Qt.btoa(JSON.stringify(actions)), String(counter),
+            n.hasInlineReply ? "true" : "false", n.inlineReplyPlaceholder])
+    }
+}
+
+// A second IPC target the island calls back into when a call is answered,
+// declined, or replied to.
+IpcHandler {
+    target: "notificationBridge"
+
+    function invokeAction(uid: string, actionId: string): void {
+        let n = notifications.live[uid]
+        if (!n || !n.actions) return
+        for (let i = 0; i < n.actions.length; i++) {
+            if (n.actions[i].identifier === actionId) { n.actions[i].invoke(); break }
+        }
+    }
+
+    function sendInlineReply(uid: string, text: string): void {
+        let n = notifications.live[uid]
+        if (n && n.hasInlineReply) n.sendInlineReply(text)
+    }
+}
+```
+
+The island calls `notificationBridge` back over IPC at the same `-p` path it
+was given for its *own* target, so both handlers need to be reachable from
+that one path — they do not have to live in the same file, only the same
+running Quickshell instance.
 
 ### Language
 
@@ -181,12 +301,19 @@ rather than pretending to follow along.
 Main.qml                 ShellRoot entry point
 └── DynamicIslandHost    Variants over Quickshell.screens — one island per monitor
     └── DynamicIsland    The surface: state machine, layout, every animation
+        ├── Strings      Every user-visible string, in English and Turkish
         ├── BarMeter     Draggable segment meter (volume / brightness / mic)
         ├── PixelClock   Composes the pixel time, seconds and date line
         │   └── PixelText  Canvas bitmap-text renderer with vertical digit rolls
-        │       └── pixelfont.js  5×7 glyph table + Turkish day/month names
-        └── backend.sh   One JSON snapshot per poll
+        │       └── pixelfont.js  5×7 glyph table + per-language day/month names
+        └── backend.sh   One JSON snapshot per poll, plus on-demand lyrics fetches
 ```
+
+Calls and inline reply are the exception to "everything is in this directory":
+they need a real `NotificationServer` and a `notificationBridge` IpcHandler
+supplying `notifyWithActions`, which live in whatever Quickshell config hosts
+the island, not in `backend.sh`. See
+[Calls and inline reply](#calls-and-inline-reply) above.
 
 `backend.sh snapshot` emits the entire UI state as one JSON object. Costly work
 (weather, bluetooth, UPower, camera detection) is refreshed in a locked
@@ -208,18 +335,13 @@ samples. Putting one on a value that already changes every frame just retargets
 the animation before it can go anywhere, which flattens the spectrum into a
 motionless row of stubs.
 
-## Localisation
-
-Interface strings are Turkish and live inline in `DynamicIsland.qml`. The pixel
-font in `pixelfont.js` carries Turkish day and month names. Both are
-straightforward to swap.
-
 ## Credits
 
 - [Quickshell](https://quickshell.outfoxxed.me/) by outfoxxed
 - Behaviours adapted from [`boring.notch`](https://github.com/TheBoredTeam/boring.notch)
 - [Bricolage Grotesque](https://github.com/ateliertriay/bricolage) (OFL 1.1, bundled)
 - [cava](https://github.com/karlstav/cava) for the spectrum data
+- [LRCLIB](https://lrclib.net) for lyrics
 
 ## License
 
