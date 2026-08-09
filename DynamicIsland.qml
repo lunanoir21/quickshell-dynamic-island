@@ -1431,6 +1431,35 @@ PanelWindow {
                 }
             }
 
+            // A quiet elapsed/remaining readout for the player-only pill. The
+            // unfilled track is what is left; the lit section is what has
+            // already played. Streams with no reported duration omit it rather
+            // than showing a permanently empty, misleading bar.
+            Rectangle {
+                visible: window.compactPlayerMode && window.mediaLengthKnown
+                z: 2
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: 18
+                anchors.rightMargin: 18
+                anchors.bottomMargin: 4
+                height: 2
+                radius: 1
+                color: window.themeTrack
+
+                Rectangle {
+                    width: parent.width * Math.max(0, Math.min(1,
+                        window.mediaPosition / Math.max(1, window.islandState.media.length || 1)))
+                    height: parent.height
+                    radius: parent.radius
+                    color: window.themeText
+                    Behavior on width {
+                        NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+                    }
+                }
+            }
+
         }
 
         // ------------------------------------------------------ expanded panel

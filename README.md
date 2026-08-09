@@ -50,7 +50,7 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/changelog/mini-player.png" alt="Player-only collapsed mode"><br><sub><b>Mini player</b> — when hover opening is off, keep only cover, title and previous/play/next over the live audio field</sub></td>
+<td width="50%"><img src="docs/screenshots/changelog/mini-player.png" alt="Player-only collapsed mode"><br><sub><b>Mini player</b> — cover, title, previous/play/next and a remaining-time track over the live audio field</sub></td>
 <td width="50%"><img src="docs/screenshots/changelog/hover-setting.png" alt="Open on hover setting"><br><sub><b>Choose the interaction</b> — hover to open, or leave it closed and click when the full panel is wanted</sub></td>
 </tr>
 <tr>

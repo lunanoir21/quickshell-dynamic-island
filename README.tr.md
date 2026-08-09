@@ -50,7 +50,7 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/changelog/mini-player.png" alt="Yalnız oynatıcı gösteren kapalı ada"><br><sub><b>Mini oynatıcı</b> — hover ile açma kapalıyken canlı ses alanı üzerinde yalnız kapak, başlık ve önceki/oynat/sonraki</sub></td>
+<td width="50%"><img src="docs/screenshots/changelog/mini-player.png" alt="Yalnız oynatıcı gösteren kapalı ada"><br><sub><b>Mini oynatıcı</b> — canlı ses alanı üzerinde kapak, başlık, önceki/oynat/sonraki ve kalan süre çizgisi</sub></td>
 <td width="50%"><img src="docs/screenshots/changelog/hover-setting.png" alt="Üzerine gelince aç ayarı"><br><sub><b>Etkileşimi seç</b> — hover ile aç veya kapalı tutup tam panel gerektiğinde tıkla</sub></td>
 </tr>
 <tr>
