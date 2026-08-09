@@ -2,8 +2,9 @@
 
 # Dynamic Island for Quickshell
 
-A monochrome notch-style overlay for Hyprland — media, live device indicators
-and a pixel-art clock in one surface that grows under the pointer.
+A configurable Dynamic Island desktop widget for Hyprland and Quickshell — an
+MPRIS media player with a CAVA audio visualizer, notifications, privacy
+indicators, themes and a pixel-art clock in one adaptive overlay.
 
 [![Quickshell](https://img.shields.io/badge/Quickshell-0.3%2B-111111?style=flat-square)](https://quickshell.outfoxxed.me/)
 [![Hyprland](https://img.shields.io/badge/Hyprland-wlroots-111111?style=flat-square)](https://hyprland.org/)

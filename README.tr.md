@@ -2,8 +2,9 @@
 
 # Quickshell için Dynamic Island
 
-Hyprland için monokrom, çentik tarzı bir katman — medya, canlı cihaz
-göstergeleri ve pixel-art bir saat; imlecin altında büyüyen tek bir yüzeyde.
+Hyprland ve Quickshell için ayarlanabilir bir Dynamic Island masaüstü widget'ı —
+MPRIS medya oynatıcı, CAVA ses görselleştirici, bildirimler, gizlilik
+göstergeleri, temalar ve pixel-art saat; uyarlanabilir tek bir katmanda.
 
 [![Quickshell](https://img.shields.io/badge/Quickshell-0.3%2B-111111?style=flat-square)](https://quickshell.outfoxxed.me/)
 [![Hyprland](https://img.shields.io/badge/Hyprland-wlroots-111111?style=flat-square)](https://hyprland.org/)
