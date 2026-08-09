@@ -20,7 +20,7 @@ göstergeleri ve pixel-art bir saat; imlecin altında büyüyen tek bir yüzeyde
 ## Nedir
 
 Ekranın üst kenarına sabitlenmiş, her zaman üstte duran tek bir yüzey. Kapalıyken
-kompakt bir pill; imleci üzerine getirdiğinizde aktarım kontrolleri, spektrum
+kompakt bir pill; üzerine gelerek—ya da hover'ı kapatıp tıklayarak—aktarım kontrolleri, spektrum
 analizörü ve ses/parlaklık/mikrofon için dikey ölçerler içeren tam bir panele
 dönüşür. Bildirimler ile mikrofon/kamera etkinliği yüzeyi kendiliğinden devralır
 ve işleri bitince geri verir.
@@ -46,14 +46,37 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 </tr>
 </table>
 
+## Neler değişti
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/changelog/mini-player.png" alt="Yalnız oynatıcı gösteren kapalı ada"><br><sub><b>Mini oynatıcı</b> — hover ile açma kapalıyken canlı ses alanı üzerinde yalnız kapak, başlık ve önceki/oynat/sonraki</sub></td>
+<td width="50%"><img src="docs/screenshots/changelog/hover-setting.png" alt="Üzerine gelince aç ayarı"><br><sub><b>Etkileşimi seç</b> — hover ile aç veya kapalı tutup tam panel gerektiğinde tıkla</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/changelog/animation-settings.png" alt="Animasyon ve mini oynatıcı ayarları"><br><sub><b>Ayarlanabilir hareket</b> — Dalga, Canlı ve Sakin; ayrıca Hafif/Dengeli/Belirgin görünürlük</sub></td>
+<td><img src="docs/screenshots/changelog/media-animation.png" alt="Temayı izleyen açık medya paneli"><br><sub><b>Kararlı temalar</b> — Siyah, Umbra, Gri ve Beyaz artık kontrastı koruyarak oynatıcıya da uygulanıyor</sub></td>
+</tr>
+</table>
+
 ## Özellikler
 
 - **MPRIS medya** — kapak görseli, başlık/sanatçı, seek, shuffle ve repeat,
   önceki/oynat/sonraki. Aktarım düğmeleri iyimser davranır: bir sonraki poll'ü
   beklemek yerine tıklama anında tepki verir.
 - **Gerçek spektrum analizörü** — [`cava`](https://github.com/karlstav/cava) ile
-  beslenir, bas bantlar ortada buluşacak şekilde aynalanır. cava yoksa veya panel
-  kapalıysa sentetik bir eğriye düşer.
+  beslenir, bas bantlar ortada buluşacak şekilde aynalanır ve kapalı pill'in
+  tamamına yayılır. Canlı, cava'yı kare kare izler; Dalga ve Sakin biçimlendirilmiş
+  varyantlar sunar, cava yoksa sentetik yedeğe düşer.
+- **Ayarlar ve temalar** — Siyah, Umbra, Gri ve Beyaz temalar; saat stilleri,
+  bildirim/arama davranışı, medya özellikleri, dil, hover davranışı ve animasyon
+  belirginliği için tam bir ayar yüzeyi. Seçiciler değiştirdikleri şeyi canlı gösterir.
+- **Tıklayarak açılan mini oynatıcı** — hover ile açmayı kapattığınızda ada yalnız
+  kapak, başlık ve önceki/oynat/sonraki kontrollerine küçülebilir. Boş pill alanına
+  tıklamak tam oynatıcıyı açar; iki davranış da ayrı ayrı ayarlanabilir.
+- **Dayanıklı YouTube kapakları** — Watch, Music, Shorts, Live, Embed ve `youtu.be`
+  bağlantılarını tanır; kalite seçeneklerini yüksekten düşüğe dener, küçük yer tutucu
+  görselleri reddeder ve doğrulanan sonucu yerel önbellekten sunar.
 - **Senkronize şarkı sözleri** — MPRIS'in bir sözler alanı var ama neredeyse
   hiçbir oynatıcı doldurmuyor (Spotify boş dize döndürüyor), bu yüzden satırlar
   hesap ya da anahtar istemeyen [LRCLIB](https://lrclib.net)'den geliyor. Parça
@@ -96,7 +119,7 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 | | |
 | --- | --- |
 | **Zorunlu** | [Quickshell](https://quickshell.outfoxxed.me/) 0.3+, Hyprland (veya layer-shell destekleyen başka bir wlroots bileşik yöneticisi), `jq`, bir Nerd Font |
-| **İsteğe bağlı** | `playerctl` (medya), `wpctl` + `pactl` (ses, mikrofon algılama, arama algılama), `brightnessctl`, `cava` (spektrum), `bluetoothctl`, `upower`, `curl` (hava durumu, şarkı sözleri, `mpris:artUrl` vermeyen tarayıcı sekmeleri için kapak görseli), `fuser` (kamera algılama) |
+| **İsteğe bağlı** | `playerctl` (medya), `wpctl` + `pactl` (ses, mikrofon algılama, arama algılama), `brightnessctl`, `cava` (spektrum), `bluetoothctl`, `upower`, `curl` (hava durumu, şarkı sözleri ve tarayıcı sekmeleri için kalite denetimli önbellekli kapak görseli), `fuser` (kamera algılama) |
 
 Eksik olan her şey ilgili bölümü boş bırakır ya da yedeğe düşer — hiçbiri
 projeyi çökertmez.
@@ -141,13 +164,16 @@ bind = SUPER, Super_L, exec, qs -p ~/.config/quickshell/Shell.qml ipc call dynam
 
 | Eylem | Sonuç |
 | --- | --- |
-| Üzerine gelme | Açılır |
-| Ayrılma | 90 ms içinde kapanır |
+| Üzerine gelme | **Üzerine gelince aç** etkinse açılır |
+| Ayrılma | Hover modunda 90 ms içinde kapanır |
+| Boş pill alanına sol tık | Hover kapalıyken açar/kapatır |
+| Mini aktarım düğmeleri | Genişletmeden önceki / oynat-duraklat / sonraki |
 | Sağ tık | Kapatır |
 | Raptiye düğmesi | Açık kilitler |
 
-Sol tık bilerek işlevsizdir. Adadan ayrılmak onu kapatmak demektir; boş panel
-alanına yanlışlıkla atılan bir tık onu asla açık bırakamamalı.
+Varsayılan hover modunda boş alana sol tık işlevsiz kalır. Hover ile açma
+kapatıldığında aynı alan bilinçli aç/kapat hedefi olur ve isteğe bağlı mini
+oynatıcı kapalıyken de aktarım kontrollerini kullanılabilir tutar.
 
 ### Klavye
 
@@ -175,6 +201,8 @@ qs -p <shell.qml> ipc call dynamicIsland notifyWithActions <uygulama> <başlık>
 qs -p <shell.qml> ipc call dynamicIsland deviceEvent <microphone|camera> <true|false> <değer>
 qs -p <shell.qml> ipc call dynamicIsland lyrics
 qs -p <shell.qml> ipc call dynamicIsland language <tr|en|toggle>
+qs -p <shell.qml> ipc call dynamicIsland hover <true|false>
+qs -p <shell.qml> ipc call dynamicIsland compactControls <true|false>
 qs -p <shell.qml> ipc call dynamicIsland dismissCall
 ```
 

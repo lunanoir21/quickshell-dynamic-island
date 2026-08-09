@@ -14,6 +14,11 @@ Column {
     property int segments: 20
     property real barWidth: 28
     property real barHeight: 156
+    property color labelColor: "#7d7d7d"
+    property color filledColor: "#f2f2f2"
+    property color emptyColor: "#292929"
+    property color iconColor: "#f2f2f2"
+    property color disabledColor: "#5a5a5a"
 
     signal moved(real value)
     signal iconClicked()
@@ -58,11 +63,11 @@ Column {
     Text {
         anchors.horizontalCenter: parent.horizontalCenter
         text: root.label
-        color: "#7d7d7d"
+        color: root.labelColor
         font.family: root.fontFamily
         font.weight: Font.DemiBold
         font.letterSpacing: 1.1
-        font.pixelSize: 8
+        font.pixelSize: 10
     }
 
     Item {
@@ -92,7 +97,7 @@ Column {
                     readonly property bool filled: root.displayValue > threshold
                     readonly property bool edgeSeg: filled && root.displayValue <= threshold + (100 / root.segments)
 
-                    color: filled ? "#f2f2f2" : "#292929"
+                    color: filled ? root.filledColor : root.emptyColor
                     opacity: !filled && root.shimmer
                         ? 0.35 + 0.25 * Math.abs(Math.sin(root.phase + fromBottom * 0.5))
                         : 1.0
@@ -102,7 +107,7 @@ Column {
                     Rectangle {
                         anchors.fill: parent
                         radius: 2
-                        color: "#ffffff"
+                        color: root.filledColor
                         // Reads straight off the shared driver, so it is exactly
                         // zero whenever the driver is at rest.
                         opacity: seg.edgeSeg ? (1 - root.edgeGlow) * 0.55 : 0
@@ -135,9 +140,9 @@ Column {
     Text {
         anchors.horizontalCenter: parent.horizontalCenter
         text: root.icon
-        color: root.active ? "#f2f2f2" : "#5a5a5a"
+        color: root.active ? root.iconColor : root.disabledColor
         font.family: root.iconFont
-        font.pixelSize: 15
+        font.pixelSize: 17
         scale: iconHit.pressed ? 0.85 : 1
 
         Behavior on color { ColorAnimation { duration: 150 } }

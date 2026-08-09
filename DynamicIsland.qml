@@ -17,16 +17,19 @@ PanelWindow {
     property string iconFont: "Iosevka Nerd Font"
 
     // ---------------------------------------------------------------- state
-    // Open/close has exactly two inputs: the pointer is over the island, or the
-    // island was locked open from the keyboard. Alerts open it on their own and
-    // close themselves on a timer. Nothing else may pin it open, because every
-    // extra owner of the open state is another way for it to get stuck there.
+    // Open/close has exactly two deliberate inputs: optional pointer hover, or
+    // a latched open state (keyboard/pin/click mode). Alerts still open on their
+    // own and close on a timer.
     property bool hovering: false
     property bool lockedOpen: false
     property bool notificationVisible: false
     property bool deviceEventVisible: false
     readonly property bool alertVisible: notificationVisible || deviceEventVisible || callVisible
-    readonly property bool expanded: hovering || lockedOpen || alertVisible
+    // The big settings window covers the whole screen while open, so the
+    // island underneath has no business popping open just because the
+    // pointer happens to pass over its (now inert) spot on the way there.
+    readonly property bool expanded: !settingsOpen
+        && ((hoverToOpen && hovering) || lockedOpen || alertVisible)
 
     // Set while a slider is being dragged so the pointer straying a few pixels
     // outside the island mid-drag can't collapse it. Guarded by a dead-man timer
@@ -76,7 +79,24 @@ PanelWindow {
     property string callUid: ""
     property string callAcceptId: ""
     property string callDeclineId: ""
-    readonly property bool callVisible: callRinging || !!islandState.call.active
+    // Manual close: the PipeWire heuristic has no notion of "the user closed
+    // this," so without a flag of its own a call the user dismissed while
+    // still live (or one the heuristic never lets go of) would just reappear
+    // on the next poll. Cleared whenever a genuinely new call starts, so a
+    // later, unrelated call still rings/shows normally.
+    property bool callDismissed: false
+    // Mirror of callDismissed for callAutoPopup === false: there the card
+    // starts closed and the user opts in, rather than starting open and
+    // opting out, so it needs its own flag rather than reusing callDismissed
+    // inverted (a call that starts, gets opened, and ends must not leave the
+    // *next* call already open).
+    property bool callManualOpen: false
+    // Whether a call is actually happening, ignoring open/closed state — this
+    // is what the status-strip call chip watches, so the chip stays put (and
+    // can still open/reopen the card) even while the card itself is closed.
+    readonly property bool callOngoing: callRinging || !!islandState.call.active
+    readonly property bool callCardOpen: window.callAutoPopup ? !callDismissed : callManualOpen
+    readonly property bool callVisible: callCardOpen && callOngoing
     readonly property string callDisplayApp: callApp !== "" ? callApp
         : (islandState.call.app !== "" ? islandState.call.app.charAt(0).toUpperCase() + islandState.call.app.slice(1) : i18n.callFallbackApp)
     readonly property string callDisplayTitle: callTitle !== "" ? callTitle : i18n.voiceCall
@@ -106,10 +126,15 @@ PanelWindow {
     }
 
     function showIncomingCall(app, title, actions, uid) {
-        if (window.callVisible) return
+        // Guards on callOngoing rather than callVisible: with auto-popup off
+        // the card can be ongoing-but-closed, and a second ring notification
+        // for that same call must not reset it back to "just started ringing".
+        if (window.callOngoing) return
         let mapped = classifyCallActions(actions)
         window.notificationVisible = false
         window.deviceEventVisible = false
+        window.callDismissed = false
+        window.callManualOpen = false
         window.callApp = app
         window.callTitle = title
         window.callUid = uid
@@ -160,9 +185,19 @@ PanelWindow {
         callConnectTimeout.stop()
     }
 
+    // The explicit close button on the call card itself. Unlike giveUpOnCall()
+    // (a timeout giving up on a call that never connected), this must hide a
+    // call that IS still live per the PipeWire heuristic — otherwise the very
+    // thing being closed reopens on the next snapshot poll.
+    function dismissCallCard() {
+        window.giveUpOnCall()
+        window.callDismissed = true
+        window.callManualOpen = false
+    }
+
     Timer {
         id: callRingTimeout
-        interval: 35000
+        interval: window.callRingSeconds * 1000
         onTriggered: if (!window.islandState.call.active) window.giveUpOnCall()
     }
 
@@ -185,6 +220,9 @@ PanelWindow {
     // their shell up declaratively, then the session locale so a fresh install
     // just speaks whatever the rest of the desktop does.
     property string langChoice: ""
+    // Every monitor owns its own DynamicIsland instance. File watchers keep
+    // preferences changed on one screen synchronized with the others.
+    property bool settingsReady: false
     readonly property string lang: {
         if (langChoice === "tr" || langChoice === "en") return langChoice
         let forced = String(Quickshell.env("QS_ISLAND_LANG") || "").toLowerCase()
@@ -195,6 +233,9 @@ PanelWindow {
         return sys.indexOf("tr") === 0 ? "tr" : "en"
     }
     Strings { id: i18n; lang: window.lang }
+    // Exposed so SettingsMenu.qml — a separate file/window — can reach the
+    // same strings rather than duplicating Strings.qml's lookups.
+    property alias i18n: i18n
 
     FileView {
         id: langFile
@@ -207,6 +248,9 @@ PanelWindow {
         // Missing on first run by definition — that is not worth a warning.
         printErrors: false
         atomicWrites: true
+        watchChanges: true
+        onFileChanged: reload()
+        onTextChanged: if (window.settingsReady) window.loadLanguage()
     }
 
     function setLanguage(code) {
@@ -217,9 +261,213 @@ PanelWindow {
         langFile.setText(code + "\n")
     }
 
-    Component.onCompleted: {
+    // ------------------------------------------------------------ settings
+    // A gear chip in the status strip opens a small settings card of its own,
+    // separate from the always-visible chips, holding the handful of toggles
+    // that don't need to be one click away at all times.
+    property bool settingsOpen: false
+
+    // ---------------------------------------------------------------- theme
+    // Four palettes behind one token set. The white theme is why these are
+    // tokens rather than a couple of if-checks: on a light ground every
+    // hairline has to flip from white-alpha to black-alpha and the on/off
+    // pill has to invert, so no colour outside the media panel can stay a
+    // literal.
+    //
+    // themeName is a string, not an index — it is what lands in settings.json,
+    // and a name survives reordering the list where a number would silently
+    // repaint the whole shell.
+    property string themeName: "umbra"
+    readonly property var themePalettes: ({
+        "black": {
+            islandFill: "#f20b0c0f", surface: "#15161a", surfaceAlt: "#22242a",
+            text: "#fafafa", subtext: "#c6c8cd", muted: "#9498a2",
+            line: "#1fffffff", lineStrong: "#36ffffff",
+            chip: "#14ffffff", chipHover: "#28ffffff",
+            on: "#f2f3f5", onText: "#0b0c0f",
+            track: "#303239", scrim: "#ad000000", grid: "#1d1f24"
+        },
+        "umbra": {
+            islandFill: "#f7000000", surface: "#070707", surfaceAlt: "#171717",
+            text: "#f5f2ec", subtext: "#c1bdb5", muted: "#918d86",
+            line: "#1cffffff", lineStrong: "#32ffffff",
+            chip: "#14ffffff", chipHover: "#29ffffff",
+            on: "#eeeae2", onText: "#050505",
+            track: "#242424", scrim: "#bd000000", grid: "#171717"
+        },
+        "gray": {
+            islandFill: "#f4383a40", surface: "#44474f", surfaceAlt: "#52555e",
+            text: "#ffffff", subtext: "#d4d6dc", muted: "#adb0b9",
+            line: "#28ffffff", lineStrong: "#42ffffff",
+            chip: "#1cffffff", chipHover: "#32ffffff",
+            on: "#f4f5f7", onText: "#24262b",
+            track: "#63666f", scrim: "#9e0a0b0e", grid: "#4d5058"
+        },
+        "white": {
+            islandFill: "#faf9faf7", surface: "#ffffff", surfaceAlt: "#ebedf0",
+            text: "#111318", subtext: "#3f434b", muted: "#676c76",
+            line: "#26000000", lineStrong: "#42000000",
+            chip: "#10000000", chipHover: "#22000000",
+            on: "#181a1f", onText: "#ffffff",
+            track: "#d3d6dc", scrim: "#70111418", grid: "#dfe2e7"
+        }
+    })
+    readonly property var themeOrder: ["black", "umbra", "gray", "white"]
+    // Falls back rather than resolving to undefined: a settings.json edited by
+    // hand to a name that no longer exists must not leave every colour unset.
+    readonly property var palette: themePalettes[themeName] || themePalettes["umbra"]
+
+    readonly property color themeIslandFill: palette.islandFill
+    readonly property color themeSurface: palette.surface
+    readonly property color themeSurfaceAlt: palette.surfaceAlt
+    readonly property color themeText: palette.text
+    readonly property color themeSubtext: palette.subtext
+    readonly property color themeMuted: palette.muted
+    readonly property color themeLine: showBorders ? palette.line : "transparent"
+    readonly property color themeLineStrong: showBorders ? palette.lineStrong : "transparent"
+    readonly property color themeChip: palette.chip
+    readonly property color themeChipHover: palette.chipHover
+    readonly property color themeOn: palette.on
+    readonly property color themeOnText: palette.onText
+    readonly property color themeTrack: palette.track
+    readonly property color themeScrim: palette.scrim
+    readonly property color themeGrid: palette.grid
+    readonly property color themeHudFill: palette.islandFill
+    readonly property bool mediaUsesDarkSurface: mediaSurfaceMode === "dark"
+    readonly property color mediaPanelText: mediaUsesDarkSurface ? "#f5f5f5" : themeText
+    readonly property color mediaPanelSubtext: mediaUsesDarkSurface ? "#a8a8a8" : themeSubtext
+    readonly property color mediaPanelMuted: mediaUsesDarkSurface ? "#7f7f7f" : themeMuted
+    readonly property color mediaPanelTrack: mediaUsesDarkSurface ? "#2b2b2b" : themeTrack
+    readonly property color mediaPanelOn: mediaUsesDarkSurface ? "#ededed" : themeOn
+
+    function setTheme(name) {
+        if (!themePalettes[name]) return
+        window.themeName = name
+        window.saveSettings()
+    }
+
+    // --------------------------------------------------------- preferences
+    property bool showBorders: true
+    property bool hoverToOpen: true
+    // "theme" follows the selected palette; "dark" is an explicit opt-in for
+    // people who want the player to stay black while the rest of the island
+    // changes. Older installs default to theme instead of inheriting the old,
+    // accidentally locked mediaAlwaysDark flag.
+    property string mediaSurfaceMode: "theme"
+    property string clockStyle: "pixel"
+    property bool clock24Hour: true
+    property bool clockSeconds: true
+    property bool clockDate: true
+    property bool clockGrid: true
+
+    property bool callAutoPopup: true
+    property int callRingSeconds: 35
+    property bool callPulseRing: true
+
+    property int notificationSeconds: 5
+    property bool notificationInlineReply: true
+    property bool notificationAppIcon: true
+
+    property bool mediaLyricsEnabled: true
+    property bool mediaSpectrumEnabled: true
+    property bool mediaAlbumArtEnabled: true
+    property bool compactMediaControls: true
+    property string mediaAnimationStyle: "wave"
+    property int mediaAnimationIntensity: 100
+
+    FileView {
+        id: settingsFile
+        path: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config"))
+              + "/quickshell/dynamic-island/settings.json"
+        blockLoading: true
+        printErrors: false
+        atomicWrites: true
+        watchChanges: true
+        onFileChanged: reload()
+        onTextChanged: if (window.settingsReady) window.loadSettings()
+    }
+
+    function saveSettings() {
+        settingsFile.setText(JSON.stringify({
+            themeName: window.themeName,
+            showBorders: window.showBorders,
+            hoverToOpen: window.hoverToOpen,
+            mediaSurfaceMode: window.mediaSurfaceMode,
+            clockStyle: window.clockStyle,
+            clock24Hour: window.clock24Hour,
+            clockSeconds: window.clockSeconds,
+            clockDate: window.clockDate,
+            clockGrid: window.clockGrid,
+            callAutoPopup: window.callAutoPopup,
+            callRingSeconds: window.callRingSeconds,
+            callPulseRing: window.callPulseRing,
+            notificationSeconds: window.notificationSeconds,
+            notificationInlineReply: window.notificationInlineReply,
+            notificationAppIcon: window.notificationAppIcon,
+            mediaLyricsEnabled: window.mediaLyricsEnabled,
+            mediaSpectrumEnabled: window.mediaSpectrumEnabled,
+            mediaAlbumArtEnabled: window.mediaAlbumArtEnabled,
+            compactMediaControls: window.compactMediaControls,
+            mediaAnimationStyle: window.mediaAnimationStyle,
+            mediaAnimationIntensity: window.mediaAnimationIntensity
+        }, null, 2) + "\n")
+    }
+
+    // Every key is read through one of these two helpers so a settings.json
+    // carrying a half-written or wrong-typed value falls back to the default
+    // rather than assigning undefined into a typed property.
+    function readBool(parsed, key, fallback) {
+        return typeof parsed[key] === "boolean" ? parsed[key] : fallback
+    }
+    function readChoice(parsed, key, allowed, fallback) {
+        return allowed.indexOf(parsed[key]) !== -1 ? parsed[key] : fallback
+    }
+
+    function loadLanguage() {
         let saved = String(langFile.text() || "").trim().toLowerCase()
         if (saved === "tr" || saved === "en") window.langChoice = saved
+    }
+
+    function loadSettings() {
+        try {
+            let raw = String(settingsFile.text() || "").trim()
+            if (!raw) return
+            let p = JSON.parse(raw)
+
+            window.themeName = readChoice(p, "themeName", window.themeOrder, window.themeName)
+            window.showBorders = readBool(p, "showBorders", window.showBorders)
+            window.hoverToOpen = readBool(p, "hoverToOpen", window.hoverToOpen)
+            window.mediaSurfaceMode = readChoice(p, "mediaSurfaceMode", ["theme", "dark"], window.mediaSurfaceMode)
+
+            window.clockStyle = readChoice(p, "clockStyle", ["pixel", "segment", "plain"], window.clockStyle)
+            window.clock24Hour = readBool(p, "clock24Hour", window.clock24Hour)
+            window.clockSeconds = readBool(p, "clockSeconds", window.clockSeconds)
+            window.clockDate = readBool(p, "clockDate", window.clockDate)
+            window.clockGrid = readBool(p, "clockGrid", window.clockGrid)
+
+            window.callAutoPopup = readBool(p, "callAutoPopup", window.callAutoPopup)
+            window.callRingSeconds = readChoice(p, "callRingSeconds", [15, 35, 60], window.callRingSeconds)
+            window.callPulseRing = readBool(p, "callPulseRing", window.callPulseRing)
+
+            window.notificationSeconds = readChoice(p, "notificationSeconds", [3, 5, 8], window.notificationSeconds)
+            window.notificationInlineReply = readBool(p, "notificationInlineReply", window.notificationInlineReply)
+            window.notificationAppIcon = readBool(p, "notificationAppIcon", window.notificationAppIcon)
+
+            window.mediaLyricsEnabled = readBool(p, "mediaLyricsEnabled", window.mediaLyricsEnabled)
+            window.mediaSpectrumEnabled = readBool(p, "mediaSpectrumEnabled", window.mediaSpectrumEnabled)
+            window.mediaAlbumArtEnabled = readBool(p, "mediaAlbumArtEnabled", window.mediaAlbumArtEnabled)
+            window.compactMediaControls = readBool(p, "compactMediaControls", window.compactMediaControls)
+            let savedAnimation = p.mediaAnimationStyle === "pulse" ? "live" : p.mediaAnimationStyle
+            window.mediaAnimationStyle = ["wave", "live", "calm"].indexOf(savedAnimation) !== -1
+                                       ? savedAnimation : window.mediaAnimationStyle
+            window.mediaAnimationIntensity = readChoice(p, "mediaAnimationIntensity", [45, 70, 100], window.mediaAnimationIntensity)
+        } catch (error) { /* missing or corrupt on first run — defaults stand */ }
+    }
+
+    Component.onCompleted: {
+        window.loadLanguage()
+        window.loadSettings()
+        window.settingsReady = true
     }
 
     readonly property bool previewMode: Quickshell.env("QS_ISLAND_PREVIEW") === "1"
@@ -229,6 +477,8 @@ PanelWindow {
     // Lets the pixel clock be pulled up while something is still playing.
     property bool showClock: false
     readonly property bool idleView: showClock || mediaStatus === "Stopped"
+    readonly property bool compactPlayerMode: !hoverToOpen && compactMediaControls
+        && mediaStatus !== "Stopped"
 
     // ------------------------------------------------------- animation drivers
     // Every looping animation drives one of these plain numbers and resets it on
@@ -326,9 +576,17 @@ PanelWindow {
 
     // Identifies the track, not the playback state: this is what decides when
     // to go looking for a different set of lyrics.
-    readonly property string trackKey: (islandState.media.artist || "") + " " + (islandState.media.title || "")
+    readonly property string trackKey: (islandState.media.artist || "") + "::track::" + (islandState.media.title || "")
 
     onTrackKeyChanged: window.reloadLyrics()
+
+    // Switching lyrics off has to close the view as well as hide its chip,
+    // otherwise a panel left on the lyrics slot keeps showing the last track's
+    // lines with no control left to get back to the visualiser.
+    onMediaLyricsEnabledChanged: {
+        if (!mediaLyricsEnabled) showLyrics = false
+        reloadLyrics()
+    }
 
     function reloadLyrics() {
         let artist = String(window.islandState.media.artist || "").trim()
@@ -336,7 +594,8 @@ PanelWindow {
         window.lyricLines = []
         window.lyricsSynced = false
         window.lyricsKey = window.trackKey
-        if (artist === "" || title === "" || window.mediaStatus === "Stopped") {
+        // No network round-trip at all while the feature is off.
+        if (!window.mediaLyricsEnabled || artist === "" || title === "" || window.mediaStatus === "Stopped") {
             window.lyricsLoading = false
             lyricsProcess.running = false
             return
@@ -499,6 +758,11 @@ PanelWindow {
         showClock = false
     }
 
+    onHoverToOpenChanged: if (!hoverToOpen) {
+        hovering = false
+        closeTimer.stop()
+    }
+
     onFullscreenActiveChanged: if (fullscreenActive) {
         lockedOpen = false
         hovering = false
@@ -634,13 +898,36 @@ PanelWindow {
         // "tr", "en", or "toggle". The choice is persisted, so this is also how
         // a keybind or a script can set the language once and have it stick.
         function language(code: string): void { window.setLanguage(code) }
+        function hover(enabled: bool): void {
+            window.hoverToOpen = enabled
+            window.saveSettings()
+        }
+        function compactControls(enabled: bool): void {
+            window.compactMediaControls = enabled
+            window.saveSettings()
+        }
         function lyrics(): void { window.showLyrics = !window.showLyrics }
         function clock(): void { window.showClock = !window.showClock }
+        function settings(): void {
+            window.settingsOpen = !window.settingsOpen
+            if (window.settingsOpen) window.closeIsland()
+        }
+        // "black", "umbra", "gray", "white", or "cycle" — so a keybind can
+        // step through the palettes without opening the settings window.
+        function theme(name: string): void {
+            if (name === "cycle") {
+                let at = window.themeOrder.indexOf(window.themeName)
+                window.setTheme(window.themeOrder[(at + 1) % window.themeOrder.length])
+            } else {
+                window.setTheme(name)
+            }
+        }
         // A call rings for up to 35s (or until answered/declined) on its own
         // timer, independent of the sending notification's own expire-timeout
         // — so there is otherwise no way to back out of a call screen that
-        // was raised by mistake, or by a test, without waiting it out.
-        function dismissCall(): void { window.giveUpOnCall() }
+        // was raised by mistake, or by a test, without waiting it out. Also
+        // covers a call the PipeWire heuristic still reports as live.
+        function dismissCall(): void { window.dismissCallCard() }
         function deviceEvent(type: string, enabled: bool, value: int): void { window.showDeviceEvent(type, enabled, value) }
         function notification(app: string, title: string, body: string): void {
             window.showNotification(app, title, body, "")
@@ -694,12 +981,22 @@ PanelWindow {
                         window.callRinging = false
                         window.callAnswering = false
                         callConnectTimeout.stop()
+                        // A call that starts fresh (heuristic alone, no ring —
+                        // e.g. answered on another device) must show up even
+                        // if a previous, unrelated call was closed earlier.
+                        if (!window.previousCallActive) {
+                            window.callDismissed = false
+                            window.callManualOpen = false
+                        }
                     } else if (window.previousCallActive && !window.callRinging) {
                         // Call ended: drop the caller name so a later, unrelated
                         // call started via the audio heuristic alone doesn't
-                        // show a stale title.
+                        // show a stale title, and close the card so the next
+                        // call (auto-popup off) doesn't inherit this one being
+                        // left open.
                         window.callApp = ""
                         window.callTitle = ""
+                        window.callManualOpen = false
                     }
                     window.previousCallActive = callNow
 
@@ -720,11 +1017,14 @@ PanelWindow {
     Process {
         id: cavaProcess
         command: [window.backend, "visualizer"]
-        // Only spend a cava process on real spectrum data while the panel is
-        // actually on screen; the collapsed pill's wave falls back to a cheap
-        // synthetic curve that costs nothing.
-        running: window.mediaStatus === "Playing" && window.expanded && !window.fullscreenActive
-        onRunningChanged: if (!running) window.visualLevels = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        // The compact pill now carries a full-width, real audio field, so cava
+        // stays alive for the duration of playback instead of starting only
+        // after expansion. This is the source of truth for the Live variant.
+        running: window.mediaSpectrumEnabled && window.mediaStatus === "Playing"
+                 && !window.fullscreenActive
+        onRunningChanged: if (!running) {
+            window.visualLevels = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        }
         stdout: SplitParser {
             splitMarker: "\n"
             onRead: line => {
@@ -757,7 +1057,7 @@ PanelWindow {
     }
     Timer {
         id: notificationTimer
-        interval: 5000
+        interval: window.notificationSeconds * 1000
         onTriggered: {
             window.notificationVisible = false
             window.notificationApp = ""
@@ -811,10 +1111,14 @@ PanelWindow {
     // the big screen sitting there through the whole "Bağlanıyor…" gap.
     readonly property bool callBigView: callRinging && !callAnswering
     readonly property real targetWidth: expanded
-        ? Math.min(notificationVisible ? 480 : (deviceEventVisible ? 400 : (callVisible ? (callBigView ? 340 : 480) : 700)), window.width - 40)
+        ? Math.min(notificationVisible ? 500 : (deviceEventVisible ? 420 : (callVisible ? (callBigView ? 360 : 500) : 780)), window.width - 40)
         : compactWidth
+    // Mirrors replyRow's own visibility rather than notificationHasReply alone:
+    // with inline reply switched off the field is gone, and the card must not
+    // keep reserving the 42px it used to occupy.
+    readonly property bool notificationReplyShown: notificationHasReply && notificationInlineReply
     readonly property real targetHeight: expanded
-        ? (notificationVisible ? (notificationHasReply ? 160 : 118) : (deviceEventVisible ? 92 : (callVisible ? (callBigView ? 260 : 118) : 300)))
+        ? (notificationVisible ? (notificationReplyShown ? 168 : 124) : (deviceEventVisible ? 98 : (callVisible ? (callBigView ? 270 : 124) : 324)))
         : 54
 
     Rectangle {
@@ -855,18 +1159,16 @@ PanelWindow {
             }
         }
 
-        border.width: 1
-        border.color: (window.callRinging || window.callAnswering)
-            ? Qt.rgba(0.35, 0.86, 0.55, 0.4 + Math.abs(Math.sin(window.visualPhase)) * 0.35)
-            : (window.expanded
-                ? "#33ffffff"
-                : Qt.rgba(1, 1, 1, 0.12 + window.playGlow * 0.22))
+        // Flat capsule, no outline — the ring pulse during a call is the one
+        // exception, since that border is a status signal rather than chrome.
+        // Its green is deliberately outside the palette: it means "ringing" in
+        // all four themes, so tying it to themeText would erase the signal.
+        readonly property bool ringPulseActive: window.callPulseRing
+            && (window.callRinging || window.callAnswering)
+        border.width: ringPulseActive ? 1 : 0
+        border.color: Qt.rgba(0.35, 0.86, 0.55, 0.4 + Math.abs(Math.sin(window.visualPhase)) * 0.35)
 
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "#f4191919" }
-            GradientStop { position: 0.5; color: "#f20d0d0d" }
-            GradientStop { position: 1.0; color: "#f5121212" }
-        }
+        color: window.themeIslandFill
 
         // Opening overshoots very slightly, closing does not: a pop on the way
         // out reads as a glitch, while a pop on the way in reads as physical.
@@ -893,20 +1195,9 @@ PanelWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width * 0.7
             height: 1
-            color: "#40ffffff"
+            color: window.themeLineStrong
             opacity: window.expanded ? 0.8 : 0.4
             Behavior on opacity { NumberAnimation { duration: 260 } }
-        }
-
-        Rectangle {
-            anchors { top: parent.top; left: parent.left; right: parent.right }
-            height: parent.height * 0.5
-            opacity: window.expanded ? 0.045 : 0.085
-            Behavior on opacity { NumberAnimation { duration: 260 } }
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: "#ffffff" }
-                GradientStop { position: 1.0; color: "#00ffffff" }
-            }
         }
 
         // Two independent hover sources. The handler keeps reporting while the
@@ -918,10 +1209,10 @@ PanelWindow {
         HoverHandler {
             id: islandHover
             onHoveredChanged: {
-                if (hovered) {
+                if (hovered && window.hoverToOpen) {
                     closeTimer.stop()
                     window.hovering = true
-                } else {
+                } else if (window.hoverToOpen) {
                     closeTimer.restart()
                 }
             }
@@ -934,21 +1225,25 @@ PanelWindow {
             hoverEnabled: true
             acceptedButtons: Qt.NoButton
             onEntered: {
+                if (!window.hoverToOpen) return
                 closeTimer.stop()
                 window.hovering = true
             }
-            onExited: closeTimer.restart()
+            onExited: if (window.hoverToOpen) closeTimer.restart()
         }
 
-        // Right click dismisses. Left click deliberately does nothing here:
-        // leaving the island is meant to close it, so an accidental click on
-        // empty panel space must never be able to latch it open. Pinning is
-        // only ever an explicit act — the pin chip or the keybind.
+        // Hover mode keeps left click inert. Click mode deliberately uses the
+        // empty capsule surface as its open/close affordance; controls declared
+        // later stay above this area and consume their own clicks.
         MouseArea {
             id: clickArea
             anchors.fill: parent
-            acceptedButtons: Qt.RightButton
-            onClicked: window.closeIsland()
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onClicked: mouse => {
+                if (mouse.button === Qt.RightButton) window.closeIsland()
+                else if (!window.hoverToOpen && !window.alertVisible)
+                    window.lockedOpen = !window.lockedOpen
+            }
         }
 
         // ------------------------------------------------------ collapsed pill
@@ -961,21 +1256,27 @@ PanelWindow {
             Behavior on opacity { NumberAnimation { duration: window.expanded ? 110 : 240; easing.type: Easing.OutCubic } }
             Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
 
-            // Spectrum ribbon along the top edge of the pill.
+            // A low-contrast sound field across the entire capsule. It is
+            // intentionally drawn before compactContent so information stays
+            // crisp while the island itself feels alive from edge to edge.
             Spectrum {
-                anchors.top: parent.top
-                anchors.topMargin: 3
-                anchors.horizontalCenter: parent.horizontalCenter
-                height: 18
-                z: 5
-                bars: 16
-                barWidth: 3
-                barSpacing: 3
-                peak: 15
+                visible: window.mediaSpectrumEnabled
+                anchors.fill: parent
+                anchors.margins: 5
+                z: 0
+                bars: 48
+                barSpacing: 2
+                fillWidth: true
+                peak: Math.max(8, height - 12)
+                floorHeight: 2
+                mirrored: true
+                baseAlpha: 0.03
+                gainAlpha: 0.27
             }
 
             RowLayout {
                 id: compactContent
+                z: 1
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: window.mediaStatus === "Playing" ? 4 : 0
                 spacing: 14
@@ -984,12 +1285,20 @@ PanelWindow {
                     visible: window.mediaStatus === "Stopped"
                     time: window.currentTime
                     lang: window.lang
+                    hour24: window.clock24Hour
+                    style: window.clockStyle
+                    textFont: window.uiFont
+                    // The pill is 54px tall — seconds and a date strip do not
+                    // survive at this scale, so the compact clock shows neither
+                    // regardless of the setting.
+                    showSeconds: false
+                    showDate: window.clockDate
                     cell: 2
                     gap: 1
                     compact: true
-                    color: "#f4f4f4"
-                    mutedColor: "#7d7d7d"
-                    gridColor: "#00000000"
+                    color: window.themeText
+                    mutedColor: window.themeMuted
+                    gridColor: "transparent"
                     Layout.preferredWidth: implicitWidth
                     Layout.preferredHeight: implicitHeight
                 }
@@ -1002,14 +1311,17 @@ PanelWindow {
                     Rectangle {
                         anchors.fill: parent
                         radius: 9
-                        color: "#1b1b1b"
+                        color: window.themeSurface
                         clip: true
                         border.width: 1
-                        border.color: "#38ffffff"
+                        border.color: window.themeLineStrong
                         Image {
                             id: artThumbImage
                             anchors.fill: parent
-                            source: String(window.islandState.media.art || "").replace("file://", "")
+                            visible: window.mediaAlbumArtEnabled
+                            source: window.mediaAlbumArtEnabled
+                                    ? String(window.islandState.media.art || "").replace("file://", "")
+                                    : ""
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                         }
@@ -1017,7 +1329,7 @@ PanelWindow {
                             anchors.centerIn: parent
                             visible: artThumbImage.status !== Image.Ready
                             text: "󰎈"
-                            color: "#8a8a8a"
+                            color: window.themeMuted
                             font.family: window.iconFont
                             font.pixelSize: 15
                         }
@@ -1030,7 +1342,7 @@ PanelWindow {
                         radius: width / 2
                         color: "transparent"
                         border.width: 1
-                        border.color: "#ffffff"
+                        border.color: window.themeText
                         visible: window.mediaStatus === "Playing"
                         opacity: (1 - window.ringPulse) * 0.45
                         scale: 0.86 + window.ringPulse * 0.4
@@ -1042,38 +1354,71 @@ PanelWindow {
                     Layout.maximumWidth: 210
                     text: window.islandState.media.title || i18n.media
                     elide: Text.ElideRight
-                    color: "#f2f2f2"
+                    color: window.themeText
                     font.family: window.uiFont
                     font.weight: Font.DemiBold
                     font.pixelSize: 14
                 }
 
-                Rectangle {
-                    visible: window.mediaStatus !== "Stopped"
-                    Layout.preferredWidth: 1; Layout.preferredHeight: 24; color: "#26ffffff"
+                Row {
+                    visible: window.compactPlayerMode
+                    spacing: 2
+
+                    CompactTransportButton {
+                        icon: "󰒮"
+                        onTriggered: window.mediaAction("previous")
+                    }
+                    CompactTransportButton {
+                        icon: window.mediaStatus === "Playing" ? "󰏤" : "󰐊"
+                        primary: true
+                        onTriggered: window.mediaAction("play-pause")
+                    }
+                    CompactTransportButton {
+                        icon: "󰒭"
+                        onTriggered: window.mediaAction("next")
+                    }
                 }
 
-                PixelText {
-                    visible: window.mediaStatus !== "Stopped"
-                    text: Qt.formatDateTime(window.currentTime, "HH:mm")
+                Rectangle {
+                    visible: window.mediaStatus !== "Stopped" && !window.compactPlayerMode
+                    Layout.preferredWidth: 1; Layout.preferredHeight: 24; color: window.themeLineStrong
+                }
+
+                PixelClock {
+                    visible: window.mediaStatus !== "Stopped" && !window.compactPlayerMode
+                    time: window.currentTime
+                    lang: window.lang
+                    hour24: window.clock24Hour
+                    style: window.clockStyle
+                    textFont: window.uiFont
+                    showSeconds: false
+                    showDate: false
                     cell: 2
                     gap: 1
-                    color: "#e6e6e6"
-                    animated: true
+                    color: window.themeText
+                    mutedColor: window.themeMuted
+                    gridColor: "transparent"
                     Layout.preferredWidth: implicitWidth
                     Layout.preferredHeight: implicitHeight
                 }
 
-                Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 24; color: "#26ffffff" }
+                Rectangle {
+                    visible: !window.compactPlayerMode
+                    Layout.preferredWidth: 1
+                    Layout.preferredHeight: 24
+                    color: window.themeLineStrong
+                }
 
                 Text {
+                    visible: !window.compactPlayerMode
                     text: (window.islandState.batteryStatus === "Charging" ? "󰂄  " : "󰁹  ") + window.islandState.battery + "%"
-                    color: "#c6c6c6"
+                    color: window.themeSubtext
                     font.family: window.iconFont
                     font.pixelSize: 14
                 }
 
                 Row {
+                    visible: !window.compactPlayerMode
                     spacing: 9
                     StatusDot {
                         icon: window.islandState.micMuted ? "󰍭" : "󰍬"
@@ -1085,6 +1430,7 @@ PanelWindow {
                     }
                 }
             }
+
         }
 
         // ------------------------------------------------------ expanded panel
@@ -1116,19 +1462,51 @@ PanelWindow {
                 spacing: 14
                 height: 26
 
-                // Controls only. Every readout — weather, bluetooth, battery,
-                // load — belongs to the collapsed pill, which is the
-                // at-a-glance surface; repeating it here just turned the open
-                // panel into a status dashboard.
-                Item { Layout.fillWidth: true }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Rectangle {
+                        Layout.preferredWidth: 6
+                        Layout.preferredHeight: 6
+                        radius: 3
+                        color: window.mediaStatus === "Playing" && !window.idleView
+                               ? "#65d58a" : window.themeMuted
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: window.idleView ? i18n.secClock : i18n.media
+                        color: window.themeSubtext
+                        font.family: window.uiFont
+                        font.weight: Font.DemiBold
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                }
 
                 PanelChip {
                     label: window.lang.toUpperCase()
                     onTriggered: window.setLanguage("toggle")
                 }
 
+                // Only present while a call is actually happening — same
+                // appear/disappear pattern as the lyrics and clock chips
+                // below, which only show up while media is playing. Toggles
+                // the call card open/closed (independent of the card's own
+                // 󰅖 close button), so a call dismissed mid-conversation can
+                // still be reopened to check how long it's been running.
                 PanelChip {
-                    visible: window.mediaStatus !== "Stopped"
+                    visible: window.callOngoing
+                    icon: "󰏶"
+                    lit: window.callVisible
+                    onTriggered: {
+                        if (window.callAutoPopup) window.callDismissed = !window.callDismissed
+                        else window.callManualOpen = !window.callManualOpen
+                    }
+                }
+
+                PanelChip {
+                    visible: window.mediaStatus !== "Stopped" && window.mediaLyricsEnabled
                     icon: "󰨖"
                     lit: window.showLyrics
                     onTriggered: window.showLyrics = !window.showLyrics
@@ -1145,6 +1523,17 @@ PanelWindow {
                     icon: window.lockedOpen ? "󰐃" : "󰤱"
                     lit: window.lockedOpen
                     onTriggered: window.lockedOpen = !window.lockedOpen
+                }
+
+                // Opens the big centered settings window, not another chip
+                // inside the island — the island itself closes to make room
+                // for it, same as clicking away from a fullscreen dialog.
+                PanelChip {
+                    icon: "󰒓"
+                    onTriggered: {
+                        window.settingsOpen = true
+                        window.closeIsland()
+                    }
                 }
 
                 PanelChip {
@@ -1166,6 +1555,15 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 20
+                        color: window.mediaUsesDarkSurface ? "#000000" : "transparent"
+                        opacity: window.idleView ? 0 : 1
+                        visible: opacity > 0.01
+                        Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                    }
+
                     // Media and clock share this slot and cross-fade, so pulling
                     // the clock up over a playing track never resizes the island.
                     RowLayout {
@@ -1182,7 +1580,12 @@ PanelWindow {
                             Layout.preferredWidth: 168
                             Layout.fillHeight: true
                             radius: 18
-                            color: "#141414"
+                            // Fixed on purpose, and the one surface in the
+                            // panel that must never follow themeSurface: real
+                            // cover art needs a dark surround to keep its edge,
+                            // and the caption sits on this box under a dark
+                            // scrim. On the white theme both would fail.
+                            color: "#000000"
                             clip: true
                             border.width: 1
                             border.color: "#16ffffff"
@@ -1190,7 +1593,10 @@ PanelWindow {
                             Image {
                                 id: homeArt
                                 anchors.fill: parent
-                                source: String(window.islandState.media.art || "").replace("file://", "")
+                                visible: window.mediaAlbumArtEnabled
+                                source: window.mediaAlbumArtEnabled
+                                        ? String(window.islandState.media.art || "").replace("file://", "")
+                                        : ""
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 // The scrim below already guarantees the caption
@@ -1206,14 +1612,13 @@ PanelWindow {
                                 font.family: window.iconFont
                                 font.pixelSize: 52
                             }
-                            // Scrim so the caption stays legible over any cover.
+                            // Flat scrim (no gradient) so the caption stays
+                            // legible over any cover, covering just the strip
+                            // behind the text rather than the whole image.
                             Rectangle {
-                                anchors.fill: parent
-                                gradient: Gradient {
-                                    GradientStop { position: 0.0; color: "#20000000" }
-                                    GradientStop { position: 0.55; color: "#66000000" }
-                                    GradientStop { position: 1.0; color: "#e0000000" }
-                                }
+                                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                                height: parent.height * 0.4
+                                color: "#cc000000"
                             }
                             Column {
                                 anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 13 }
@@ -1249,7 +1654,7 @@ PanelWindow {
                                 Layout.fillWidth: true
                                 text: window.islandState.media.title || "Dynamic Island"
                                 elide: Text.ElideRight
-                                color: "#ffffff"
+                                color: window.mediaPanelText
                                 font.family: window.uiFont
                                 font.bold: true
                                 font.pixelSize: 19
@@ -1259,7 +1664,7 @@ PanelWindow {
                                 Layout.topMargin: 2
                                 text: window.islandState.media.artist || i18n.unknownArtist
                                 elide: Text.ElideRight
-                                color: "#989898"
+                                color: window.mediaPanelSubtext
                                 font.family: window.uiFont
                                 font.pixelSize: 11
                             }
@@ -1286,7 +1691,8 @@ PanelWindow {
                                     peak: Math.max(6, height - 8)
                                     floorHeight: 3
                                     mirrored: true
-                                    opacity: window.showLyrics ? 0 : 1
+                                    barColor: window.mediaPanelText
+                                    opacity: (window.showLyrics || !window.mediaSpectrumEnabled) ? 0 : 1
                                     visible: opacity > 0.01
                                     Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                                 }
@@ -1341,7 +1747,7 @@ PanelWindow {
                                         horizontalAlignment: Text.AlignHCenter
                                         text: window.lyricPrev
                                         elide: Text.ElideRight
-                                        color: "#5f5f5f"
+                                        color: window.mediaPanelMuted
                                         font.family: window.uiFont
                                         font.pixelSize: 9
                                         // Fades as it leaves rather than
@@ -1353,7 +1759,7 @@ PanelWindow {
                                         horizontalAlignment: Text.AlignHCenter
                                         text: window.lyricCurrent
                                         elide: Text.ElideRight
-                                        color: window.lyricIsPlaceholder ? "#7a7a7a" : "#ffffff"
+                                        color: window.lyricIsPlaceholder ? window.mediaPanelMuted : window.mediaPanelText
                                         font.family: window.uiFont
                                         font.weight: window.lyricIsPlaceholder ? Font.Normal : Font.Bold
                                         font.italic: window.lyricIsPlaceholder
@@ -1370,7 +1776,7 @@ PanelWindow {
                                         horizontalAlignment: Text.AlignHCenter
                                         text: window.lyricNext
                                         elide: Text.ElideRight
-                                        color: "#5f5f5f"
+                                        color: window.mediaPanelMuted
                                         font.family: window.uiFont
                                         font.pixelSize: 9
                                         opacity: 0.35 + lyricsPane.riseOpacity * 0.65
@@ -1414,12 +1820,12 @@ PanelWindow {
                                     width: seekSlider.availableWidth
                                     height: 4
                                     radius: 2
-                                    color: "#2b2b2b"
+                                    color: window.mediaPanelTrack
                                     Rectangle {
                                         width: window.mediaLengthKnown ? seekSlider.visualPosition * parent.width : 0
                                         height: parent.height
                                         radius: 2
-                                        color: "#ededed"
+                                        color: window.mediaPanelOn
                                     }
                                 }
                                 handle: Rectangle {
@@ -1429,7 +1835,7 @@ PanelWindow {
                                     width: 11
                                     height: 11
                                     radius: 6
-                                    color: "#ffffff"
+                                    color: window.mediaPanelText
                                     scale: seekSlider.pressed ? 1.25 : 1
                                     Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
                                 }
@@ -1456,11 +1862,11 @@ PanelWindow {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                Text { text: window.formatTime(window.mediaPosition); color: "#7f7f7f"; font.family: window.uiFont; font.pixelSize: 9 }
+                                Text { text: window.formatTime(window.mediaPosition); color: window.mediaPanelMuted; font.family: window.uiFont; font.pixelSize: 9 }
                                 Item { Layout.fillWidth: true }
                                 Text {
                                     text: window.mediaLengthKnown ? window.formatTime(window.islandState.media.length) : i18n.liveDuration
-                                    color: "#7f7f7f"; font.family: window.uiFont; font.pixelSize: 9
+                                    color: window.mediaPanelMuted; font.family: window.uiFont; font.pixelSize: 9
                                 }
                             }
 
@@ -1480,7 +1886,8 @@ PanelWindow {
                                         required property var modelData
                                         required property int index
                                         text: modelData.i
-                                        color: modelData.lit ? "#ffffff" : (transportHit.containsMouse ? "#ffffff" : "#adadad")
+                                        color: modelData.lit ? window.mediaPanelText
+                                             : (transportHit.containsMouse ? window.mediaPanelText : window.mediaPanelSubtext)
                                         font.family: window.iconFont
                                         font.pixelSize: index === 2 ? 30 : 21
                                         scale: transportHit.pressed ? 0.84 : 1.0
@@ -1517,23 +1924,28 @@ PanelWindow {
                             anchors.centerIn: parent
                             time: window.currentTime
                             lang: window.lang
+                            hour24: window.clock24Hour
+                            style: window.clockStyle
+                            textFont: window.uiFont
+                            showSeconds: window.clockSeconds
+                            showDate: window.clockDate
                             cell: 8
                             gap: 2
-                            color: "#f6f6f6"
-                            mutedColor: "#8d8d8d"
-                            gridColor: "#191919"
+                            color: window.themeText
+                            mutedColor: window.themeMuted
+                            gridColor: window.clockGrid ? window.themeGrid : "transparent"
                         }
                     }
                 }
 
                 // ------------------------------------------------------ meters
                 Rectangle {
-                    Layout.preferredWidth: 152
+                    Layout.preferredWidth: 164
                     Layout.fillHeight: true
                     radius: 20
-                    color: "#131313"
+                    color: (!window.idleView && window.mediaUsesDarkSurface) ? "#000000" : window.themeSurface
                     border.width: 1
-                    border.color: "#16ffffff"
+                    border.color: window.themeLine
 
                     RowLayout {
                         anchors.centerIn: parent
@@ -1547,6 +1959,11 @@ PanelWindow {
                             value: window.islandState.muted ? 0 : window.islandState.volume
                             active: !window.islandState.muted
                             phase: window.visualPhase
+                            labelColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
+                            filledColor: window.idleView ? window.themeOn : window.mediaPanelOn
+                            emptyColor: window.idleView ? window.themeTrack : window.mediaPanelTrack
+                            iconColor: window.idleView ? window.themeText : window.mediaPanelText
+                            disabledColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
                             onDraggingChanged: window.setInteracting(dragging)
                             onMoved: v => window.runDirect(["wpctl", "set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SINK@", v + "%"])
                             onIconClicked: window.run(["mute"])
@@ -1558,6 +1975,11 @@ PanelWindow {
                             icon: "󰃠"
                             value: window.islandState.brightness
                             phase: window.visualPhase
+                            labelColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
+                            filledColor: window.idleView ? window.themeOn : window.mediaPanelOn
+                            emptyColor: window.idleView ? window.themeTrack : window.mediaPanelTrack
+                            iconColor: window.idleView ? window.themeText : window.mediaPanelText
+                            disabledColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
                             onDraggingChanged: window.setInteracting(dragging)
                             onMoved: v => window.runDirect(["brightnessctl", "set", v + "%"])
                         }
@@ -1570,6 +1992,11 @@ PanelWindow {
                             active: !window.islandState.micMuted
                             shimmer: window.islandState.micActive && !window.islandState.micMuted
                             phase: window.visualPhase
+                            labelColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
+                            filledColor: window.idleView ? window.themeOn : window.mediaPanelOn
+                            emptyColor: window.idleView ? window.themeTrack : window.mediaPanelTrack
+                            iconColor: window.idleView ? window.themeText : window.mediaPanelText
+                            disabledColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
                             onDraggingChanged: window.setInteracting(dragging)
                             onMoved: v => window.runDirect(["wpctl", "set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SOURCE@", v + "%"])
                             onIconClicked: window.run(["mic-mute"])
@@ -1577,6 +2004,7 @@ PanelWindow {
                     }
                 }
             }
+
         }
 
         // ---------------------------------------------------------- device card
@@ -1594,7 +2022,7 @@ PanelWindow {
                 width: 90
                 height: parent.height - 2
                 radius: 30
-                color: "#ffffff"
+                color: window.themeText
                 opacity: 0.04
                 rotation: 18
                 x: -400
@@ -1626,7 +2054,7 @@ PanelWindow {
                         radius: 19
                         color: "transparent"
                         border.width: 1
-                        border.color: "#66ffffff"
+                        border.color: window.themeLineStrong
                         opacity: window.deviceEventType === "microphone"
                             ? 0.35 + Math.abs(Math.sin(window.visualPhase)) * 0.6
                             : 0.7
@@ -1644,16 +2072,16 @@ PanelWindow {
                         width: 62; height: 62; radius: 21
                         color: "transparent"
                         border.width: 1
-                        border.color: "#1effffff"
+                        border.color: window.themeLine
                     }
                     Rectangle {
                         anchors.centerIn: parent
                         width: 42; height: 42; radius: 14
-                        color: "#ededed"
+                        color: window.themeOn
                         Text {
                             anchors.centerIn: parent
                             text: window.deviceEventIcon
-                            color: "#0a0a0a"
+                            color: window.themeOnText
                             font.family: window.iconFont
                             font.pixelSize: 23
                         }
@@ -1673,7 +2101,7 @@ PanelWindow {
                     Text {
                         Layout.fillWidth: true
                         text: window.deviceEventTitle
-                        color: "#f5f5f5"
+                        color: window.themeText
                         font.family: window.uiFont
                         font.weight: Font.Bold
                         font.pixelSize: 16
@@ -1682,7 +2110,7 @@ PanelWindow {
                     Text {
                         Layout.fillWidth: true
                         text: window.deviceEventSubtitle
-                        color: "#8b8b8b"
+                        color: window.themeMuted
                         font.family: window.uiFont
                         font.pixelSize: 11
                         elide: Text.ElideRight
@@ -1699,7 +2127,7 @@ PanelWindow {
                             required property int index
                             width: 3
                             radius: 1.5
-                            color: "#dedede"
+                            color: window.themeSubtext
                             // No Behavior: the driving sine is already smooth, and
                             // animating toward a target that moves every frame
                             // only damps it back down to a flat line.
@@ -1715,7 +2143,7 @@ PanelWindow {
                     Layout.preferredWidth: 9
                     Layout.preferredHeight: 9
                     radius: 4.5
-                    color: window.islandState.cameraActive ? "#f2f2f2" : "#4d4d4d"
+                    color: window.islandState.cameraActive ? window.themeText : window.themeTrack
                     // Bound to the shared phase rather than a private infinite
                     // loop, so it can never be left mid-blink.
                     opacity: window.islandState.cameraActive
@@ -1747,16 +2175,22 @@ PanelWindow {
                         Layout.preferredHeight: 50
                         Layout.alignment: Qt.AlignVCenter
                         radius: 16
-                        color: window.notificationIcon !== "" ? "#1a1a1a" : "#f0f0f0"
+                        // Tracks whether the logo is really being drawn, not
+                        // just whether one was supplied — with app icons off
+                        // the tile has to become the light initial-badge plate.
+                        readonly property bool showsLogo: window.notificationAppIcon
+                                                          && window.notificationIcon !== ""
+                        color: showsLogo ? window.themeSurfaceAlt : window.themeOn
                         border.width: 1
-                        border.color: window.notificationIcon !== "" ? "#2effffff" : "#ffffff"
+                        border.color: showsLogo ? window.themeLineStrong : window.themeOn
 
                         Image {
                             id: notificationLogo
                             anchors.centerIn: parent
                             width: 30; height: 30
-                            source: window.notificationIcon
-                            visible: window.notificationIcon !== "" && status === Image.Ready
+                            source: window.notificationAppIcon ? window.notificationIcon : ""
+                            visible: window.notificationAppIcon
+                                     && window.notificationIcon !== "" && status === Image.Ready
                             sourceSize.width: 64
                             sourceSize.height: 64
                             fillMode: Image.PreserveAspectFit
@@ -1768,7 +2202,7 @@ PanelWindow {
                             anchors.centerIn: parent
                             visible: !notificationLogo.visible
                             text: window.notificationApp.length > 0 ? window.notificationApp.charAt(0).toUpperCase() : "󰂚"
-                            color: "#0b0b0b"
+                            color: window.themeOnText
                             font.family: window.notificationApp.length > 0 ? window.uiFont : "Iosevka Nerd Font"
                             font.weight: Font.Black
                             font.pixelSize: 22
@@ -1782,7 +2216,7 @@ PanelWindow {
 
                         Text {
                             text: window.notificationApp || i18n.notification
-                            color: "#8b8b8b"
+                            color: window.themeMuted
                             font.family: window.uiFont
                             font.weight: Font.DemiBold
                             font.capitalization: Font.AllUppercase
@@ -1792,7 +2226,7 @@ PanelWindow {
                         Text {
                             Layout.fillWidth: true
                             text: window.notificationTitle || i18n.newNotification
-                            color: "#f5f5f5"
+                            color: window.themeText
                             font.family: window.uiFont
                             font.weight: Font.Bold
                             font.pixelSize: 16
@@ -1801,7 +2235,7 @@ PanelWindow {
                         Text {
                             Layout.fillWidth: true
                             text: window.notificationBody || i18n.emptyNotification
-                            color: "#b2b2b2"
+                            color: window.themeSubtext
                             font.family: window.uiFont
                             font.pixelSize: 11
                             wrapMode: Text.Wrap
@@ -1819,16 +2253,16 @@ PanelWindow {
                 RowLayout {
                     id: replyRow
                     Layout.fillWidth: true
-                    visible: window.notificationHasReply
+                    visible: window.notificationHasReply && window.notificationInlineReply
                     spacing: 8
 
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 32
                         radius: 10
-                        color: "#161616"
+                        color: window.themeSurface
                         border.width: 1
-                        border.color: replyField.activeFocus ? "#4affffff" : "#20ffffff"
+                        border.color: replyField.activeFocus ? window.themeText : window.themeLineStrong
                         Behavior on border.color { ColorAnimation { duration: 140 } }
 
                         TextField {
@@ -1840,8 +2274,8 @@ PanelWindow {
                             text: window.notificationReplyText
                             placeholderText: window.notificationReplyPlaceholder !== ""
                                 ? window.notificationReplyPlaceholder : i18n.replyPlaceholder
-                            color: "#f2f2f2"
-                            placeholderTextColor: "#6f6f6f"
+                            color: window.themeText
+                            placeholderTextColor: window.themeMuted
                             font.family: window.uiFont
                             font.pixelSize: 12
                             background: Item {}
@@ -1875,7 +2309,7 @@ PanelWindow {
                         Layout.preferredHeight: 32
                         radius: 10
                         opacity: window.notificationReplyText.trim() !== "" ? 1 : 0.35
-                        color: sendHit.containsMouse ? "#3a3a3a" : "#242424"
+                        color: sendHit.containsMouse ? window.themeChipHover : window.themeSurfaceAlt
                         Behavior on color { ColorAnimation { duration: 140 } }
                         scale: sendHit.pressed ? 0.88 : 1
                         Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
@@ -1883,7 +2317,7 @@ PanelWindow {
                         Text {
                             anchors.centerIn: parent
                             text: "󰒊"
-                            color: "#f2f2f2"
+                            color: window.themeText
                             font.family: window.iconFont
                             font.pixelSize: 15
                         }
@@ -1906,14 +2340,14 @@ PanelWindow {
                 anchors.bottomMargin: 10
                 height: 2
                 radius: 1
-                color: "#242424"
+                color: window.themeTrack
 
                 Rectangle {
                     id: notificationBar
                     height: parent.height
                     width: parent.width
                     radius: parent.radius
-                    color: "#f2f2f2"
+                    color: window.themeOn
                     transformOrigin: Item.Left
                     // Scaled rather than resized so the countdown never triggers
                     // a relayout on every frame.
@@ -1927,7 +2361,9 @@ PanelWindow {
                 property: "scale"
                 from: 1
                 to: 0
-                duration: 5000
+                // Tracks the dismiss timer, so the bar always empties exactly
+                // as the card goes rather than drifting from the real timeout.
+                duration: window.notificationSeconds * 1000
                 easing.type: Easing.Linear
             }
         }
@@ -1999,15 +2435,15 @@ PanelWindow {
                         Rectangle {
                             anchors.centerIn: parent
                             width: 62; height: 62; radius: 31
-                            color: "#171717"
+                            color: window.themeSurface
                             border.width: 1
-                            border.color: callCard.live ? "#3affffff" : "#4a5ce97e"
+                            border.color: callCard.live ? window.themeLineStrong : "#4a5ce97e"
                             Behavior on border.color { ColorAnimation { duration: 220 } }
                             Text {
                                 anchors.centerIn: parent
                                 text: window.callAnswering ? "󰏶" : "󰏷"
                                 rotation: callCard.ringing ? Math.sin(window.visualPhase * 3) * 9 : 0
-                                color: "#f0f0f0"
+                                color: window.themeText
                                 font.family: window.iconFont
                                 font.pixelSize: 24
                             }
@@ -2019,7 +2455,7 @@ PanelWindow {
                         Layout.topMargin: 8
                         horizontalAlignment: Text.AlignHCenter
                         text: window.callDisplayTitle
-                        color: "#f7f7f7"
+                        color: window.themeText
                         font.family: window.uiFont
                         font.weight: Font.Bold
                         font.pixelSize: 18
@@ -2029,7 +2465,7 @@ PanelWindow {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         text: window.callAnswering ? i18n.callConnecting : (window.callDisplayApp + " · " + i18n.incomingCall)
-                        color: "#9c9c9c"
+                        color: window.themeMuted
                         font.family: window.uiFont
                         font.pixelSize: 11
                     }
@@ -2090,13 +2526,13 @@ PanelWindow {
                         Rectangle {
                             anchors.centerIn: parent
                             width: 50; height: 50; radius: 25
-                            color: "#1a1a1a"
+                            color: window.themeSurface
                             border.width: 1
-                            border.color: "#2effffff"
+                            border.color: window.themeLineStrong
                             Text {
                                 anchors.centerIn: parent
                                 text: "󰏶"
-                                color: "#ededed"
+                                color: window.themeText
                                 font.family: window.iconFont
                                 font.pixelSize: 20
                             }
@@ -2110,7 +2546,7 @@ PanelWindow {
 
                         Text {
                             text: window.callDisplayApp
-                            color: "#8b8b8b"
+                            color: window.themeMuted
                             font.family: window.uiFont
                             font.weight: Font.DemiBold
                             font.capitalization: Font.AllUppercase
@@ -2120,7 +2556,7 @@ PanelWindow {
                         Text {
                             Layout.fillWidth: true
                             text: window.callDisplayTitle
-                            color: "#f5f5f5"
+                            color: window.themeText
                             font.family: window.uiFont
                             font.weight: Font.Bold
                             font.pixelSize: 16
@@ -2131,12 +2567,25 @@ PanelWindow {
                             scale: callCard.durationPop
                             transformOrigin: Item.Left
                             text: callCard.live ? window.formatTime(window.islandState.call.duration) : i18n.callConnecting
-                            color: "#b2b2b2"
+                            color: window.themeSubtext
                             font.family: window.uiFont
                             font.pixelSize: 11
                         }
                     }
                 }
+            }
+
+            // Manual close — the live view has no timeout of its own (an
+            // ongoing call is meant to stay up), so without this the card is
+            // stuck on screen for as long as the PipeWire heuristic keeps
+            // reporting the call active, same idea as the panel's own 󰅖 chip.
+            PanelChip {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 12
+                icon: "󰅖"
+                z: 5
+                onTriggered: window.dismissCallCard()
             }
         }
 
@@ -2157,9 +2606,8 @@ PanelWindow {
             width: Math.min(parent.width - 24, hudRow.implicitWidth + 30)
             height: 34
             radius: 16
-            color: "#f21b1b1b"
-            border.width: 1
-            border.color: "#26ffffff"
+            color: window.themeHudFill
+            border.width: 0
             z: 20
 
             RowLayout {
@@ -2168,7 +2616,7 @@ PanelWindow {
                 spacing: 10
                 Text {
                     text: window.activityText !== "" ? window.activityText : window.hudKind
-                    color: "#ffffff"
+                    color: window.themeText
                     font.family: window.iconFont
                     font.pixelSize: 13
                 }
@@ -2177,24 +2625,34 @@ PanelWindow {
                     Layout.preferredWidth: 104
                     Layout.preferredHeight: 4
                     radius: 2
-                    color: "#3b3b3b"
+                    color: window.themeTrack
                     Rectangle {
                         width: parent.width * Math.max(0, Math.min(100, window.hudValue)) / 100
                         height: parent.height
                         radius: 2
-                        color: "#ffffff"
+                        color: window.themeOn
                         Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
                     }
                 }
                 Text {
                     visible: window.activityText === ""
                     text: window.hudValue + "%"
-                    color: "#c4c4c4"
+                    color: window.themeSubtext
                     font.family: window.uiFont
                     font.pixelSize: 10
                 }
             }
         }
+    }
+
+    // A separate window/file rather than another card inside `island`: this
+    // one is meant to close the island and take over the whole screen, so it
+    // needs its own layer-shell surface, not just another layer of z-order.
+    SettingsMenu {
+        host: window
+        screen: window.screen
+        open: window.settingsOpen
+        onDismissRequested: window.settingsOpen = false
     }
 
     // ------------------------------------------------------------- components
@@ -2208,6 +2666,12 @@ PanelWindow {
         // Folds the band list around the centre so the low bands meet in the
         // middle, which reads much better than a one-directional ramp.
         property bool mirrored: false
+        property color barColor: window.themeText
+        property string animationStyle: window.mediaAnimationStyle
+        property bool fillWidth: false
+        property real baseAlpha: 0.28
+        property real gainAlpha: 0.62
+        property real intensity: window.mediaAnimationIntensity / 100
 
         spacing: barSpacing
 
@@ -2229,15 +2693,34 @@ PanelWindow {
                     return index < half ? (half - 1 - index) : (index - half)
                 }
                 readonly property real level: window.visualLevels[band % window.visualLevels.length] || 0
-                readonly property real amp: window.mediaStatus !== "Playing" ? 0
-                    : (window.cavaLive && level > 1 ? Math.min(1, level / 100)
-                                                    : Math.abs(Math.sin(window.visualPhase + band * 0.72)))
+                readonly property real audioAmp: window.cavaLive && level > 1
+                    ? Math.min(1, level / 100) : 0
+                readonly property real fallbackWave: Math.abs(Math.sin(window.visualPhase + band * 0.72))
+                readonly property real rawAmp: window.cavaLive ? audioAmp : fallbackWave
+                readonly property real amp: {
+                    if (window.mediaStatus !== "Playing") return 0
+                    // Live never invents motion: every bar comes directly from
+                    // cava, so it matches the playing audio frame for frame.
+                    if (spectrum.animationStyle === "live")
+                        return window.cavaLive ? audioAmp : 0.035
+                    if (spectrum.animationStyle === "calm")
+                        return 0.08 + rawAmp * 0.32
+                    // Wave keeps the flowing band-to-band silhouette while
+                    // still leaning primarily on real audio when available.
+                    return window.cavaLive
+                        ? Math.min(1, audioAmp * 0.72 + fallbackWave * 0.28)
+                        : fallbackWave
+                }
 
-                width: spectrum.barWidth
+                width: spectrum.fillWidth
+                    ? Math.max(1, (spectrum.width - (spectrum.bars - 1) * spectrum.barSpacing) / spectrum.bars)
+                    : spectrum.barWidth
                 height: spectrum.floorHeight + amp * spectrum.peak
                 radius: width / 2
                 anchors.verticalCenter: parent.verticalCenter
-                color: Qt.rgba(1, 1, 1, 0.28 + amp * 0.62)
+                color: Qt.rgba(spectrum.barColor.r, spectrum.barColor.g, spectrum.barColor.b,
+                               Math.min(1, (spectrum.baseAlpha + amp * spectrum.gainAlpha)
+                                        * spectrum.intensity))
 
                 // Only smooth cava's discrete 30 Hz samples. The synthetic
                 // fallback already moves continuously, and running a Behavior
@@ -2267,7 +2750,7 @@ PanelWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.top
             text: dot.icon
-            color: dot.lit ? "#ffffff" : "#666666"
+            color: dot.lit ? window.themeText : window.themeMuted
             font.family: window.iconFont
             font.pixelSize: 17
             Behavior on color { ColorAnimation { duration: 200 } }
@@ -2278,9 +2761,41 @@ PanelWindow {
             width: dot.lit ? 14 : 4
             height: 2.5
             radius: 1.25
-            color: dot.lit ? "#ffffff" : "#454545"
+            color: dot.lit ? window.themeText : window.themeTrack
             Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
             Behavior on color { ColorAnimation { duration: 200 } }
+        }
+    }
+
+    component CompactTransportButton: Rectangle {
+        id: compactTransport
+        property string icon: ""
+        property bool primary: false
+        signal triggered()
+
+        width: primary ? 30 : 26
+        height: 30
+        radius: 10
+        color: compactTransport.primary
+            ? window.themeOn
+            : (compactTransportHit.containsMouse ? window.themeChipHover : "transparent")
+        scale: compactTransportHit.pressed ? 0.86 : 1
+        Behavior on color { ColorAnimation { duration: 130 } }
+        Behavior on scale { NumberAnimation { duration: 100; easing.type: Easing.OutCubic } }
+
+        Text {
+            anchors.centerIn: parent
+            text: compactTransport.icon
+            color: compactTransport.primary ? window.themeOnText : window.themeSubtext
+            font.family: window.iconFont
+            font.pixelSize: compactTransport.primary ? 16 : 14
+        }
+
+        MouseArea {
+            id: compactTransportHit
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: compactTransport.triggered()
         }
     }
 
@@ -2324,7 +2839,9 @@ PanelWindow {
             Text {
                 anchors.centerIn: parent
                 text: callBtn.accept ? "󰏲" : "󰏵"
-                color: "#f5f5f5"
+                // Action buttons keep their semantic green/red surfaces in
+                // every theme; their glyph must therefore stay light too.
+                color: "#ffffff"
                 font.family: window.iconFont
                 font.pixelSize: callBtn.size * 0.4
             }
@@ -2342,7 +2859,7 @@ PanelWindow {
             visible: callBtn.label !== ""
             anchors.horizontalCenter: parent.horizontalCenter
             text: callBtn.label
-            color: "#c8c8c8"
+            color: window.themeSubtext
             font.family: window.uiFont
             font.pixelSize: 10
         }
@@ -2361,7 +2878,7 @@ PanelWindow {
         implicitWidth: chip.label !== "" ? Math.max(28, chipLabel.implicitWidth + 12) : 28
         implicitHeight: 24
         radius: 9
-        color: chip.lit ? "#ededed" : (chipHit.containsMouse ? "#26ffffff" : "#14ffffff")
+        color: chip.lit ? window.themeOn : (chipHit.containsMouse ? window.themeChipHover : window.themeChip)
         Behavior on color { ColorAnimation { duration: 160 } }
         scale: chipHit.pressed ? 0.9 : 1
         Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
@@ -2370,7 +2887,7 @@ PanelWindow {
             id: chipLabel
             anchors.centerIn: parent
             text: chip.label !== "" ? chip.label : chip.icon
-            color: chip.lit ? "#0b0b0b" : "#d6d6d6"
+            color: chip.lit ? window.themeOnText : window.themeSubtext
             font.family: chip.label !== "" ? window.uiFont : window.iconFont
             font.weight: chip.label !== "" ? Font.Bold : Font.Normal
             font.letterSpacing: chip.label !== "" ? 0.5 : 0
@@ -2385,4 +2902,5 @@ PanelWindow {
             onClicked: chip.triggered()
         }
     }
+
 }

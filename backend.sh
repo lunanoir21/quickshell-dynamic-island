@@ -8,6 +8,7 @@ slow_cache="$base_dir/slow.json"
 slow_lock="$base_dir/slow.lock"
 call_state="$base_dir/call.json"
 lyrics_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/lyrics"
+thumbnail_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/thumbnails"
 # Where the UI persists user choices (currently just the language). Created
 # here rather than from QML because Quickshell's file writer won't create
 # missing parent directories, and this script runs on every poll — so the
@@ -15,6 +16,7 @@ lyrics_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/lyrics"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/dynamic-island"
 mkdir -p "$base_dir"
 mkdir -p "$(dirname "$weather_cache")"
+mkdir -p "$thumbnail_dir"
 mkdir -p "$config_dir"
 
 # Apps whose simultaneous playback + capture stream counts as an active call.
@@ -28,6 +30,68 @@ weather_ttl=900
 # lyrics keeps them forever (they don't change), but a miss is worth retrying
 # eventually since LRCLIB is community-contributed and gains tracks over time.
 lyrics_miss_ttl=604800
+
+# Extracts the canonical 11-character id from the common YouTube URL shapes
+# emitted by browser MPRIS bridges. Keeping this here (rather than in QML)
+# covers youtube.com, music/mobile hosts, youtu.be, Shorts, Live and embeds in
+# one place and avoids handing a page URL to the image loader.
+youtube_id_from_url() {
+    local url="$1" id=""
+
+    if [[ "$url" =~ [\?\&]v=([A-Za-z0-9_-]{11}) ]]; then
+        id=${BASH_REMATCH[1]}
+    elif [[ "$url" =~ youtu\.be/([A-Za-z0-9_-]{11}) ]]; then
+        id=${BASH_REMATCH[1]}
+    elif [[ "$url" =~ youtube(-nocookie)?\.com/(shorts|live|embed|v)/([A-Za-z0-9_-]{11}) ]]; then
+        id=${BASH_REMATCH[3]}
+    fi
+
+    [[ "$id" =~ ^[A-Za-z0-9_-]{11}$ ]] && printf '%s' "$id"
+}
+
+# Starts a single background download per video and immediately returns a
+# usable source. The next snapshot switches to the local cached file. Quality
+# is tried high-to-low, but tiny YouTube "maxres unavailable" placeholders are
+# rejected so they can never be mistaken for a successful cover.
+youtube_art_for() {
+    local id="$1" cache="$thumbnail_dir/$id.jpg" lock="$thumbnail_dir/$id.lock"
+
+    if [[ -s "$cache" ]]; then
+        printf 'file://%s' "$cache"
+        return 0
+    fi
+
+    if command -v curl >/dev/null 2>&1 && mkdir "$lock" 2>/dev/null; then
+        (
+            trap 'rmdir "$lock" 2>/dev/null; rm -f "$cache.tmp"' EXIT
+            local quality width height bytes
+            for quality in maxresdefault sddefault hqdefault mqdefault; do
+                curl -fsSL --connect-timeout 2 --max-time 7 --retry 1 \
+                    -o "$cache.tmp" "https://i.ytimg.com/vi/$id/$quality.jpg" || continue
+
+                bytes=$(stat -c %s "$cache.tmp" 2>/dev/null || echo 0)
+                width=0; height=0
+                if command -v identify >/dev/null 2>&1; then
+                    read -r width height < <(identify -format '%w %h' "$cache.tmp" 2>/dev/null || echo '0 0')
+                elif command -v magick >/dev/null 2>&1; then
+                    read -r width height < <(magick identify -format '%w %h' "$cache.tmp" 2>/dev/null || echo '0 0')
+                fi
+
+                # Dimension-aware when ImageMagick exists; byte size is the
+                # dependency-free fallback. Both reject 120x90 placeholders.
+                if (( width >= 320 && height >= 180 )) || { (( width == 0 )) && (( bytes >= 4096 )); }; then
+                    mv "$cache.tmp" "$cache"
+                    exit 0
+                fi
+                rm -f "$cache.tmp"
+            done
+        ) >/dev/null 2>&1 &
+    fi
+
+    # hqdefault exists for effectively every public video and keeps the first
+    # frame useful while the higher-quality local cache is being populated.
+    printf 'https://i.ytimg.com/vi/%s/hqdefault.jpg' "$id"
+}
 
 file_age() {
     local now modified
@@ -224,13 +288,13 @@ json_snapshot() {
     position_s=${rest%%§|§*}; rest=${rest#*§|§}
     track_url=${rest%%§|§*}
 
-    # Browser tabs (YouTube via Firefox/Chrome's MPRIS bridge, at least) never
-    # send mpris:artUrl at all — there's nothing to fall back to there, so the
-    # only way to show a real thumbnail is to derive one from the page URL
-    # MPRIS does give us. i.ytimg.com serves any video's thumbnail by id with
-    # no key or lookup needed.
-    if [[ -z "$art" && "$track_url" =~ (youtube\.com/(watch\?v=|shorts/)|youtu\.be/)([A-Za-z0-9_-]{11}) ]]; then
-        art="https://i.ytimg.com/vi/${BASH_REMATCH[3]}/hqdefault.jpg"
+    # Browser MPRIS bridges often omit art entirely, or expose a generic
+    # browser favicon. For YouTube the page URL is the reliable identity, so a
+    # validated, locally cached thumbnail wins even when artUrl is non-empty.
+    local youtube_id
+    youtube_id=$(youtube_id_from_url "$track_url")
+    if [[ -n "$youtube_id" ]]; then
+        art=$(youtube_art_for "$youtube_id")
     fi
 
     [[ "$status" == "Playing" || "$status" == "Paused" ]] || status="Stopped"

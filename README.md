@@ -20,7 +20,7 @@ and a pixel-art clock in one surface that grows under the pointer.
 ## What it is
 
 A single always-on-top surface pinned to the top edge of the screen. Collapsed
-it is a compact pill; hover it and it morphs into a full panel with transport
+it is a compact pill; hover it—or disable hover and click it—and it morphs into a full panel with transport
 controls, a spectrum analyser and vertical meters for volume, brightness and
 microphone gain. Notifications and microphone/camera activity take the surface
 over on their own and hand it back when they are done.
@@ -46,14 +46,38 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 </tr>
 </table>
 
+## What changed
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/changelog/mini-player.png" alt="Player-only collapsed mode"><br><sub><b>Mini player</b> — when hover opening is off, keep only cover, title and previous/play/next over the live audio field</sub></td>
+<td width="50%"><img src="docs/screenshots/changelog/hover-setting.png" alt="Open on hover setting"><br><sub><b>Choose the interaction</b> — hover to open, or leave it closed and click when the full panel is wanted</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/changelog/animation-settings.png" alt="Animation and mini player settings"><br><sub><b>Tunable motion</b> — Wave, Live and Calm, plus Soft/Balanced/Bold visibility</sub></td>
+<td><img src="docs/screenshots/changelog/media-animation.png" alt="Expanded themed media panel"><br><sub><b>Stable themes</b> — Black, Umbra, Gray and White now carry through the player with contrast-safe text</sub></td>
+</tr>
+</table>
+
 ## Features
 
 - **MPRIS media** — cover art, title/artist, scrubbing, shuffle and repeat,
   previous/play/next. Transport buttons apply optimistically so the UI reacts on
   click instead of waiting for the next poll.
 - **Real spectrum analyser** — driven by [`cava`](https://github.com/karlstav/cava),
-  mirrored around the centre so the low bands meet in the middle. Falls back to a
-  synthetic curve when cava is unavailable or the panel is closed.
+  mirrored around the centre so the low bands meet in the middle. It spans the
+  collapsed pill too; Live maps cava frame-for-frame, while Wave and Calm offer
+  shaped variants and a synthetic fallback when cava is unavailable.
+- **Settings and themes** — a full settings surface for Black, Umbra, Gray and
+  White themes, clock styles, notification/call behaviour, media features,
+  language, hover behaviour and animation visibility. Every picker previews the
+  thing it changes.
+- **Click-to-open mini player** — turn hover opening off and the collapsed island
+  can reduce itself to cover, title and previous/play/next. Clicking empty pill
+  space opens the full player; both behaviours are independently configurable.
+- **Resilient YouTube artwork** — recognises Watch, Music, Shorts, Live, Embed and
+  `youtu.be` links, tries thumbnail qualities high-to-low, rejects tiny placeholder
+  images and serves the validated result from a local cache.
 - **Synced lyrics** — MPRIS has a lyrics field, but essentially nothing fills it
   in (Spotify reports it as an empty string), so lines come from
   [LRCLIB](https://lrclib.net) instead, no account or key needed. Fetched once
@@ -96,7 +120,7 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 | | |
 | --- | --- |
 | **Required** | [Quickshell](https://quickshell.outfoxxed.me/) 0.3+, Hyprland (or another wlroots compositor with layer-shell), `jq`, a Nerd Font |
-| **Optional** | `playerctl` (media), `wpctl` + `pactl` (audio, mic detection, call detection), `brightnessctl`, `cava` (spectrum), `bluetoothctl`, `upower`, `curl` (weather, lyrics, and thumbnails for browser tabs with no `mpris:artUrl`), `fuser` (camera detection) |
+| **Optional** | `playerctl` (media), `wpctl` + `pactl` (audio, mic detection, call detection), `brightnessctl`, `cava` (spectrum), `bluetoothctl`, `upower`, `curl` (weather, lyrics, and quality-checked cached thumbnails for browser tabs), `fuser` (camera detection) |
 
 Anything missing simply leaves its section empty or falls back — nothing hard-fails.
 
@@ -140,13 +164,16 @@ bind = SUPER, Super_L, exec, qs -p ~/.config/quickshell/Shell.qml ipc call dynam
 
 | Action | Result |
 | --- | --- |
-| Hover | Expands |
-| Leave | Collapses after 90 ms |
+| Hover | Expands when **Open on hover** is enabled |
+| Leave | Collapses after 90 ms in hover mode |
+| Left click on empty pill space | Opens/closes when hover mode is disabled |
+| Mini transport buttons | Previous / play-pause / next without expanding |
 | Right click | Dismiss |
 | Pin chip | Latches it open |
 
-Left click is deliberately inert. Leaving the island is meant to close it, so an
-accidental click on empty panel space must never be able to latch it open.
+In the default hover mode, left click on empty space remains inert. When hover
+opening is disabled, that same space becomes the deliberate expand/collapse
+target and the optional mini player keeps transport available while collapsed.
 
 ### Keyboard
 
@@ -175,6 +202,8 @@ qs -p <shell.qml> ipc call dynamicIsland notifyWithActions <app> <title> <body> 
 qs -p <shell.qml> ipc call dynamicIsland deviceEvent <microphone|camera> <true|false> <value>
 qs -p <shell.qml> ipc call dynamicIsland lyrics
 qs -p <shell.qml> ipc call dynamicIsland language <tr|en|toggle>
+qs -p <shell.qml> ipc call dynamicIsland hover <true|false>
+qs -p <shell.qml> ipc call dynamicIsland compactControls <true|false>
 qs -p <shell.qml> ipc call dynamicIsland dismissCall
 ```
 

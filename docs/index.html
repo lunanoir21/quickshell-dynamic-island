@@ -220,6 +220,37 @@ section + section { border-top: 1px solid var(--edge-soft); }
 }
 .shot img { border-radius: 8px; width: auto; max-width: 100%; margin-inline: auto; }
 
+/* --------------------------------------------------------------- changelog */
+.release-head { max-width: 760px; margin-bottom: clamp(28px, 4vw, 46px); }
+.release-head h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(30px, 5vw, 50px);
+  line-height: 1.08;
+  letter-spacing: -.025em;
+  color: var(--lit);
+}
+.release-head p { margin: 16px 0 0; max-width: 60ch; }
+.release-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.release-card {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 20px;
+  background: var(--sunk);
+  overflow: hidden;
+}
+.release-card.wide { grid-column: 1 / -1; }
+.release-card img { width: 100%; border-radius: 10px; }
+.release-card figcaption { padding: 13px 4px 3px; }
+.release-card b {
+  display: block;
+  color: var(--lit);
+  font-family: var(--display);
+  font-size: 16px;
+}
+.release-card span { display: block; margin-top: 4px; color: var(--dim); font-size: 13px; line-height: 1.5; }
+
 /* ---------------------------------------------------------------- features */
 .rows { border-top: 1px solid var(--edge-soft); }
 .row {
@@ -286,6 +317,8 @@ footer .sp { flex: 1; }
 /* ------------------------------------------------------------- responsive */
 @media (max-width: 720px) {
   .shot, .row { grid-template-columns: 1fr; gap: 12px; }
+  .release-grid { grid-template-columns: 1fr; }
+  .release-card.wide { grid-column: auto; }
   .hero { padding-top: 104px; }
   .pill { font-size: 10px; gap: 10px; padding-left: 14px; }
 }
@@ -314,8 +347,8 @@ footer .sp { flex: 1; }
   <h1>A notch that earns its place</h1>
   <p class="lede">
     Dynamic Island is a monochrome overlay for Hyprland, built on Quickshell.
-    Collapsed it is a compact pill. Hover it and it morphs into media controls,
-    a live spectrum analyser and meters for volume, brightness and mic gain.
+    Collapsed it is a compact pill. Hover it—or choose click-to-open—and it
+    morphs into media controls, a live spectrum analyser and three live meters.
   </p>
 
   <div class="actions">
@@ -330,9 +363,10 @@ footer .sp { flex: 1; }
   <p class="eyebrow">What it is</p>
   <div class="prose">
     <p>
-      One always-on-top surface pinned to the top edge of the screen. It grows
-      under the pointer and collapses <strong>90&nbsp;ms</strong> after the pointer
-      leaves — no dwell timer, no click needed to dismiss it.
+      One always-on-top surface pinned to the top edge of the screen. In hover
+      mode it grows under the pointer and collapses <strong>90&nbsp;ms</strong>
+      after the pointer leaves. Prefer a still desktop? Disable hover, use the
+      player-only pill, and click empty pill space only when the full panel is wanted.
     </p>
     <p>
       Notifications, incoming calls, and microphone or camera activity take the
@@ -341,6 +375,41 @@ footer .sp { flex: 1; }
       call's answer and decline buttons — the two controls where guessing wrong
       actually costs you something.
     </p>
+  </div>
+</section>
+
+<section class="wrap" id="changelog">
+  <p class="eyebrow">Changelog · 2026.08.09</p>
+  <div class="release-head">
+    <h2>Motion you can tune. Interaction you can choose.</h2>
+    <p>
+      This release adds a complete settings surface, four contrast-safe themes,
+      optional hover expansion, a player-only collapsed mode, three spectrum
+      behaviours, adjustable animation visibility, and quality-checked cached
+      YouTube thumbnails.
+    </p>
+  </div>
+
+  <div class="release-grid">
+    <figure class="release-card wide">
+      <img src="screenshots/changelog/media-animation.png" alt="Expanded Umbra media panel with a live audio spectrum" loading="lazy" width="1120" height="450">
+      <figcaption><b>Audio becomes the surface</b><span>Wave, Live and Calm variants share real cava data; visibility can be set to Soft, Balanced or Bold.</span></figcaption>
+    </figure>
+
+    <figure class="release-card">
+      <img src="screenshots/changelog/mini-player.png" alt="Player-only collapsed island with cover, title and transport buttons" loading="lazy" width="920" height="220">
+      <figcaption><b>Player-only collapsed mode</b><span>Turn hover opening off and the pill keeps only cover, title and previous/play/next over the full-width audio field.</span></figcaption>
+    </figure>
+
+    <figure class="release-card">
+      <img src="screenshots/changelog/hover-setting.png" alt="General settings page showing the Open on hover switch turned off" loading="lazy" width="1020" height="720">
+      <figcaption><b>Hover is optional</b><span>With hover disabled, compact controls remain usable and a click on empty pill space opens the full panel.</span></figcaption>
+    </figure>
+
+    <figure class="release-card wide">
+      <img src="screenshots/changelog/animation-settings.png" alt="Media settings with mini player mode, motion variants and animation visibility" loading="lazy" width="700" height="430">
+      <figcaption><b>Settings that preview the result</b><span>Motion choices animate in place, themes show their real palette, and every label switches live between English and Turkish.</span></figcaption>
+    </figure>
   </div>
 </section>
 
@@ -429,7 +498,19 @@ footer .sp { flex: 1; }
     </div>
     <div class="row">
       <dt>Spectrum analyser</dt>
-      <dd>Real band data from <code>cava</code>, mirrored around the centre. Falls back to a synthetic curve when cava is missing or the panel is closed.</dd>
+      <dd>Real band data from <code>cava</code>, mirrored around the centre and drawn across the collapsed pill too. Live follows cava frame-for-frame; Wave and Calm reshape it and provide a synthetic fallback.</dd>
+    </div>
+    <div class="row">
+      <dt>Settings and themes</dt>
+      <dd>Black, Umbra, Gray and White palettes with contrast-safe text, plus live controls for clock style, language, hover behaviour, mini-player mode and animation visibility.</dd>
+    </div>
+    <div class="row">
+      <dt>Player-only pill</dt>
+      <dd>Disable hover expansion and the collapsed island can keep only cover, title and previous/play/next. Clicking its empty surface opens the full panel.</dd>
+    </div>
+    <div class="row">
+      <dt>YouTube artwork</dt>
+      <dd>Watch, Music, Shorts, Live, Embed and <code>youtu.be</code> URLs resolve to quality-checked thumbnails. Tiny placeholders are rejected and successful images are cached locally.</dd>
     </div>
     <div class="row">
       <dt>Pixel-art clock</dt>
@@ -487,8 +568,8 @@ footer .sp { flex: 1; }
     <p>
       Needs Quickshell 0.3+, a wlroots compositor with layer-shell, <code>jq</code>
       and a Nerd Font. <code>playerctl</code>, <code>wpctl</code>,
-      <code>brightnessctl</code>, <code>cava</code>, <code>curl</code> (weather and
-      lyrics), <code>pactl</code> (call detection) and <code>upower</code> are all
+      <code>brightnessctl</code>, <code>cava</code>, <code>curl</code> (weather,
+      lyrics and browser thumbnails), <code>pactl</code> (call detection) and <code>upower</code> are all
       optional — anything missing leaves its section empty rather than failing.
     </p>
   </div>
