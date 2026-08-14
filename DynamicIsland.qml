@@ -266,6 +266,9 @@ PanelWindow {
     // separate from the always-visible chips, holding the handful of toggles
     // that don't need to be one click away at all times.
     property bool settingsOpen: false
+    // Set by the settingsSection IPC call just before opening; the menu picks it
+    // up and clears it, so reopening later stays where the user last was.
+    property string settingsSectionRequest: ""
 
     // ---------------------------------------------------------------- theme
     // Four palettes behind one token set. The white theme is why these are
@@ -374,6 +377,18 @@ PanelWindow {
     property bool compactMediaControls: true
     property string mediaAnimationStyle: "wave"
     property int mediaAnimationIntensity: 100
+    property bool appVolumeEnabled: true
+    // "chips" names the players, "logos" shows their icons only, "segment" puts
+    // one segmented pill in the status strip. Which reads best depends on how
+    // many players the user actually runs, so it stays a preference.
+    property string playerSwitcherStyle: "chips"
+    // "list" is title/artist only and always works; "covers" and "timeline"
+    // need artwork and track lengths, which a TrackList may simply not carry.
+    property string queueStyle: "list"
+    // Off by default, and labelled experimental in both the settings row and the
+    // panel itself: MPRIS has no general queue concept, so this only ever works
+    // on the few players implementing the optional TrackList interface.
+    property bool queueEnabled: false
 
     FileView {
         id: settingsFile
@@ -409,7 +424,11 @@ PanelWindow {
             mediaAlbumArtEnabled: window.mediaAlbumArtEnabled,
             compactMediaControls: window.compactMediaControls,
             mediaAnimationStyle: window.mediaAnimationStyle,
-            mediaAnimationIntensity: window.mediaAnimationIntensity
+            mediaAnimationIntensity: window.mediaAnimationIntensity,
+            appVolumeEnabled: window.appVolumeEnabled,
+            queueEnabled: window.queueEnabled,
+            playerSwitcherStyle: window.playerSwitcherStyle,
+            queueStyle: window.queueStyle
         }, null, 2) + "\n")
     }
 
@@ -461,6 +480,12 @@ PanelWindow {
             window.mediaAnimationStyle = ["wave", "live", "calm"].indexOf(savedAnimation) !== -1
                                        ? savedAnimation : window.mediaAnimationStyle
             window.mediaAnimationIntensity = readChoice(p, "mediaAnimationIntensity", [45, 70, 100], window.mediaAnimationIntensity)
+            window.appVolumeEnabled = readBool(p, "appVolumeEnabled", window.appVolumeEnabled)
+            window.queueEnabled = readBool(p, "queueEnabled", window.queueEnabled)
+            window.playerSwitcherStyle = readChoice(p, "playerSwitcherStyle",
+                ["chips", "logos", "segment"], window.playerSwitcherStyle)
+            window.queueStyle = readChoice(p, "queueStyle",
+                ["list", "covers", "timeline"], window.queueStyle)
         } catch (error) { /* missing or corrupt on first run — defaults stand */ }
     }
 
@@ -524,9 +549,52 @@ PanelWindow {
     property string mediaStatusOverride: ""
     property string mediaShuffleOverride: ""
     property string mediaLoopOverride: ""
+    // Same idea for the player switcher: the pick is persisted by backend.sh, so
+    // without this the pressed chip would stay unlit for up to a full poll.
+    property string selectedPlayerOverride: ""
     readonly property string mediaStatus: mediaStatusOverride !== "" ? mediaStatusOverride : islandState.media.status
     readonly property string mediaShuffle: mediaShuffleOverride !== "" ? mediaShuffleOverride : islandState.media.shuffle
     readonly property string mediaLoop: mediaLoopOverride !== "" ? mediaLoopOverride : islandState.media.loop
+
+    readonly property var mediaPlayers: islandState.players || []
+
+    function isPlayerSelected(entry) {
+        if (!entry) return false
+        return window.selectedPlayerOverride !== ""
+            ? entry.name === window.selectedPlayerOverride
+            : entry.selected === true
+    }
+
+    // The chip row sits in the 142px-wide gap under the cover, which fits three.
+    // The selected player is always kept among them, so the lit chip can never
+    // be the one that got folded away; the remainder collapses into a +N chip.
+    readonly property var visiblePlayers: {
+        let all = window.mediaPlayers
+        if (all.length <= 3) return all
+        let picked = []
+        let rest = []
+        for (let i = 0; i < all.length; i++) {
+            if (window.isPlayerSelected(all[i])) picked.push(all[i])
+            else rest.push(all[i])
+        }
+        return picked.concat(rest).slice(0, 3)
+    }
+
+    // playerctl reports instance names like "chromium.instance1"; the desktop
+    // lookup wants the bare application, so the suffix goes before asking.
+    function resolvePlayerIcon(entry) {
+        if (!entry) return ""
+        return window.resolveAppIcon(entry.label) || window.resolveAppIcon(entry.name)
+    }
+
+    // Advances to the first player the row had no room to show.
+    function cyclePlayer() {
+        let shown = window.visiblePlayers.map(entry => entry.name)
+        for (let i = 0; i < window.mediaPlayers.length; i++) {
+            let name = window.mediaPlayers[i].name
+            if (shown.indexOf(name) === -1) { window.selectPlayer(name); return }
+        }
+    }
 
     Timer {
         id: mediaOverrideTimer
@@ -535,6 +603,7 @@ PanelWindow {
             window.mediaStatusOverride = ""
             window.mediaShuffleOverride = ""
             window.mediaLoopOverride = ""
+            window.selectedPlayerOverride = ""
         }
     }
 
@@ -560,6 +629,66 @@ PanelWindow {
         if (window.interacting || positionSettleTimer.running) return
         let value = Number(reported) || 0
         if (Math.abs(value - window.mediaPosition) > 1.4) window.mediaPosition = value
+    }
+
+    // ------------------------------------------------------------- app mixer
+    // Chip-toggled panels, so they follow the lyrics rule rather than the alert
+    // cards': they take over the media slot at the panel's existing size and
+    // never resize it, because resizing under a pointer that is mid-reach moves
+    // the very control the user is going for.
+    property bool showAppVolumes: false
+    property bool showQueue: false
+    readonly property var appStreams: islandState.apps || []
+    readonly property var mediaQueue: islandState.queue || ({ supported: false, tracks: [] })
+
+    // How far off a queued track is: whatever is left of the current one, plus
+    // every track before it. A player that reports no lengths gets a bare
+    // position marker instead of a fabricated time.
+    function queueOffsetLabel(index) {
+        let tracks = window.mediaQueue.tracks || []
+        let total = Math.max(0, (window.islandState.media.length || 0) - window.mediaPosition)
+        let known = (window.islandState.media.length || 0) > 0
+        for (let i = 0; i < index && i < tracks.length; i++) {
+            let len = Number(tracks[i].length) || 0
+            if (len > 0) total += len
+            else known = false
+        }
+        if (!known) return "#" + (index + 1)
+        return "+" + window.formatTime(total)
+    }
+
+    // Which optional sections backend.sh should build this poll. Both are shell
+    // work nobody should pay for while the panels are closed.
+    readonly property string snapshotMode: showAppVolumes ? "apps" : (showQueue ? "queue" : "")
+
+    onShowQueueChanged: if (showQueue) {
+        showAppVolumes = false
+        delayedRefresh.restart()
+    }
+
+    onShowAppVolumesChanged: if (showAppVolumes) {
+        showQueue = false
+        // The list is only collected while a panel is open, so the first frame
+        // would otherwise be empty for up to a full poll interval.
+        delayedRefresh.restart()
+    }
+
+    function setAppVolume(entry, value) {
+        if (!entry) return
+        window.run(["app-volume", entry.indexes, String(Math.round(value))])
+    }
+
+    function toggleAppMute(entry) {
+        if (!entry) return
+        window.run(["app-mute", entry.indexes, entry.muted ? "0" : "1"])
+    }
+
+    // PulseAudio's application.name ("Firefox") and the actual binary ("floorp")
+    // disagree often enough — forks, wrappers, Electron apps — that both are
+    // worth trying before giving up and leaving the slot empty.
+    function resolveStreamIcon(entry) {
+        if (!entry) return ""
+        return window.resolveAppIcon(entry.name) || window.resolveAppIcon(entry.binary)
     }
 
     // ----------------------------------------------------------------- lyrics
@@ -712,6 +841,15 @@ PanelWindow {
         delayedRefresh.restart()
     }
 
+    // Goes through backend.sh rather than execDetached: the pick has to land in
+    // the state file every later playerctl call reads, which is the script's job.
+    function selectPlayer(name) {
+        if (!name) return
+        window.selectedPlayerOverride = name
+        mediaOverrideTimer.restart()
+        window.run(["select-player", name])
+    }
+
     // ------------------------------------------------------------- open/close
     // A short grace period only exists to bridge the frame where the island
     // resizes under the pointer; it is not a "keep it around a while" delay.
@@ -756,6 +894,8 @@ PanelWindow {
     onExpandedChanged: if (!expanded) {
         setInteracting(false)
         showClock = false
+        showAppVolumes = false
+        showQueue = false
     }
 
     onHoverToOpenChanged: if (!hoverToOpen) {
@@ -908,6 +1048,16 @@ PanelWindow {
         }
         function lyrics(): void { window.showLyrics = !window.showLyrics }
         function clock(): void { window.showClock = !window.showClock }
+        function appVolumes(): void { window.showAppVolumes = !window.showAppVolumes }
+        function queue(): void { window.showQueue = !window.showQueue }
+
+        // Opens the settings window straight onto one section, so a keybind can
+        // land on the thing it is about instead of wherever it was left last.
+        function settingsSection(name: string): void {
+            window.settingsSectionRequest = name
+            window.settingsOpen = true
+            window.closeIsland()
+        }
         function settings(): void {
             window.settingsOpen = !window.settingsOpen
             if (window.settingsOpen) window.closeIsland()
@@ -956,7 +1106,7 @@ PanelWindow {
 
     Process {
         id: snapshot
-        command: [window.backend, "snapshot"]
+        command: [window.backend, "snapshot", window.snapshotMode]
         stdout: StdioCollector {
             onStreamFinished: {
                 let raw = text.trim()
@@ -1170,20 +1320,21 @@ PanelWindow {
 
         color: window.themeIslandFill
 
-        // Opening overshoots very slightly, closing does not: a pop on the way
-        // out reads as a glitch, while a pop on the way in reads as physical.
+        // Same curve character both ways — only the duration differs, opening
+        // a little slower than it closes — so the two directions read as one
+        // physical motion rather than two different animations stitched
+        // together. No overshoot: a bounce on either edge reads as a glitch
+        // more than it reads as physical.
         Behavior on width {
             NumberAnimation {
-                duration: window.expanded ? 460 : 300
-                easing.type: window.expanded ? Easing.OutBack : Easing.InOutQuad
-                easing.overshoot: 0.7
+                duration: window.expanded ? 380 : 260
+                easing.type: Easing.OutQuint
             }
         }
         Behavior on height {
             NumberAnimation {
-                duration: window.expanded ? 460 : 300
-                easing.type: window.expanded ? Easing.OutBack : Easing.InOutQuad
-                easing.overshoot: 0.55
+                duration: window.expanded ? 380 : 260
+                easing.type: Easing.OutQuint
             }
         }
         Behavior on radius { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
@@ -1513,6 +1664,60 @@ PanelWindow {
                     }
                 }
 
+                // B3 — one pill divided into a segment per player. Costs room in
+                // an already busy strip, which is why it isn't the default.
+                Rectangle {
+                    visible: window.playerSwitcherStyle === "segment"
+                             && window.mediaPlayers.length > 1
+                    implicitWidth: segmentRow.implicitWidth + 4
+                    implicitHeight: 24
+                    radius: 9
+                    color: window.themeChip
+
+                    Row {
+                        id: segmentRow
+                        anchors.centerIn: parent
+                        spacing: 2
+
+                        Repeater {
+                            model: window.mediaPlayers
+
+                            Rectangle {
+                                id: playerSegment
+                                required property var modelData
+                                readonly property bool picked: window.isPlayerSelected(modelData)
+
+                                implicitWidth: Math.min(66, segmentLabel.implicitWidth + 14)
+                                implicitHeight: 20
+                                radius: 7
+                                color: picked ? window.themeOn : "transparent"
+                                Behavior on color { ColorAnimation { duration: 160 } }
+
+                                Text {
+                                    id: segmentLabel
+                                    anchors.centerIn: parent
+                                    width: Math.min(implicitWidth, playerSegment.width - 10)
+                                    text: playerSegment.modelData.label
+                                    elide: Text.ElideRight
+                                    horizontalAlignment: Text.AlignHCenter
+                                    color: playerSegment.picked ? window.themeOnText : window.themeSubtext
+                                    font.family: window.uiFont
+                                    font.weight: Font.Bold
+                                    font.pixelSize: 9
+                                    font.capitalization: Font.AllUppercase
+                                    font.letterSpacing: 0.5
+                                    Behavior on color { ColorAnimation { duration: 160 } }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: window.selectPlayer(playerSegment.modelData.name)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 PanelChip {
                     label: window.lang.toUpperCase()
                     onTriggered: window.setLanguage("toggle")
@@ -1539,6 +1744,25 @@ PanelWindow {
                     icon: "󰨖"
                     lit: window.showLyrics
                     onTriggered: window.showLyrics = !window.showLyrics
+                }
+
+                // Shown whenever the feature is on rather than gated on there
+                // being streams to list: the stream list is only collected while
+                // the panel is open, so gating on it would hide the only way to
+                // open it. Same reasoning as the lyrics chip not pre-checking
+                // whether the track actually has lyrics.
+                PanelChip {
+                    visible: window.appVolumeEnabled
+                    icon: "󰕾"
+                    lit: window.showAppVolumes
+                    onTriggered: window.showAppVolumes = !window.showAppVolumes
+                }
+
+                PanelChip {
+                    visible: window.queueEnabled && window.mediaStatus !== "Stopped"
+                    icon: "󰐑"
+                    lit: window.showQueue
+                    onTriggered: window.showQueue = !window.showQueue
                 }
 
                 PanelChip {
@@ -1661,15 +1885,134 @@ PanelWindow {
                                     font.bold: true
                                     font.pixelSize: 12
                                 }
-                                Text {
+                                // Doubles as the player switcher, rather than
+                                // sitting beside one: with a single player this
+                                // is the plain caption it has always been, so
+                                // the control only appears once there is
+                                // actually something to switch between — and it
+                                // costs no extra room in an already tight panel.
+                                Item {
                                     width: parent.width
-                                    text: window.islandState.media.player || "MPRIS"
-                                    elide: Text.ElideRight
-                                    color: "#a8a8a8"
-                                    font.family: window.uiFont
-                                    font.capitalization: Font.AllUppercase
-                                    font.letterSpacing: 1
-                                    font.pixelSize: 8
+                                    height: 13
+
+                                    Text {
+                                        anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
+                                        visible: window.mediaPlayers.length <= 1
+                                        text: window.islandState.media.player || "MPRIS"
+                                        elide: Text.ElideRight
+                                        color: "#a8a8a8"
+                                        font.family: window.uiFont
+                                        font.capitalization: Font.AllUppercase
+                                        font.letterSpacing: 1
+                                        font.pixelSize: 8
+                                    }
+
+                                    // B1 — named chips. Three fit; the rest fold
+                                    // into a +N that advances through them.
+                                    Row {
+                                        anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                                        visible: window.mediaPlayers.length > 1
+                                                 && window.playerSwitcherStyle === "chips"
+                                        spacing: 3
+
+                                        Repeater {
+                                            model: window.visiblePlayers
+                                            PlayerChip {
+                                                required property var modelData
+                                                text: modelData.label
+                                                lit: window.isPlayerSelected(modelData)
+                                                onTriggered: window.selectPlayer(modelData.name)
+                                            }
+                                        }
+
+                                        PlayerChip {
+                                            visible: window.mediaPlayers.length > 3
+                                            text: "+" + (window.mediaPlayers.length - 3)
+                                            onTriggered: window.cyclePlayer()
+                                        }
+                                    }
+
+                                    // B2 — icons only. Six fit where three names
+                                    // did, at the cost of telling two windows of
+                                    // the same application apart.
+                                    Row {
+                                        anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                                        visible: window.mediaPlayers.length > 1
+                                                 && window.playerSwitcherStyle === "logos"
+                                        spacing: 7
+
+                                        Repeater {
+                                            model: window.mediaPlayers
+
+                                            Item {
+                                                id: playerLogo
+                                                required property var modelData
+                                                readonly property bool picked: window.isPlayerSelected(modelData)
+                                                readonly property string iconPath: window.resolvePlayerIcon(modelData)
+
+                                                width: 18
+                                                height: 18
+                                                scale: logoHit.pressed ? 0.88 : 1
+                                                Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+
+                                                Rectangle {
+                                                    anchors.fill: parent
+                                                    radius: 9
+                                                    color: "transparent"
+                                                    border.width: playerLogo.picked ? 1 : 0
+                                                    border.color: "#ffffff"
+                                                }
+
+                                                Image {
+                                                    anchors.centerIn: parent
+                                                    width: 14
+                                                    height: 14
+                                                    visible: playerLogo.iconPath !== ""
+                                                    source: playerLogo.iconPath
+                                                    fillMode: Image.PreserveAspectFit
+                                                    asynchronous: true
+                                                    smooth: true
+                                                    opacity: playerLogo.picked ? 1 : 0.4
+                                                    Behavior on opacity { NumberAnimation { duration: 160 } }
+                                                }
+
+                                                // Not every player installs a
+                                                // desktop icon; the initial keeps
+                                                // the row from gapping.
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    visible: playerLogo.iconPath === ""
+                                                    text: String(playerLogo.modelData.label || "?").charAt(0).toUpperCase()
+                                                    color: playerLogo.picked ? "#ffffff" : "#8a8a8a"
+                                                    font.family: window.uiFont
+                                                    font.bold: true
+                                                    font.pixelSize: 10
+                                                }
+
+                                                MouseArea {
+                                                    id: logoHit
+                                                    anchors.fill: parent
+                                                    anchors.margins: -3
+                                                    onClicked: window.selectPlayer(playerLogo.modelData.name)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // B3 keeps this slot as the plain caption:
+                                    // its control lives up in the status strip.
+                                    Text {
+                                        anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
+                                        visible: window.mediaPlayers.length > 1
+                                                 && window.playerSwitcherStyle === "segment"
+                                        text: window.islandState.media.player || "MPRIS"
+                                        elide: Text.ElideRight
+                                        color: "#a8a8a8"
+                                        font.family: window.uiFont
+                                        font.capitalization: Font.AllUppercase
+                                        font.letterSpacing: 1
+                                        font.pixelSize: 8
+                                    }
                                 }
                             }
                         }
@@ -2029,6 +2372,407 @@ PanelWindow {
                             onDraggingChanged: window.setInteracting(dragging)
                             onMoved: v => window.runDirect(["wpctl", "set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SOURCE@", v + "%"])
                             onIconClicked: window.run(["mic-mute"])
+                        }
+                    }
+                }
+            }
+
+            // ------------------------------------------- app mixer panel
+            // Takes over the content area at the panel's existing size rather
+            // than opening a card of its own: chip-toggled content must not
+            // resize the island, or the control the pointer is reaching for
+            // moves out from under it. Same rule the lyrics view follows.
+            Item {
+                id: appMixerPanel
+                anchors { left: parent.left; right: parent.right; top: statusStrip.bottom; bottom: parent.bottom }
+                anchors.leftMargin: 20
+                anchors.rightMargin: 20
+                anchors.topMargin: 14
+                anchors.bottomMargin: 18
+                z: 5
+                clip: true
+                visible: opacity > 0.01
+                opacity: window.showAppVolumes ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 20
+                    color: (!window.idleView && window.mediaUsesDarkSurface) ? "#000000" : window.themeSurface
+                    border.width: 1
+                    border.color: window.themeLine
+                }
+
+                // Swallows clicks that would otherwise land on the transport
+                // controls still sitting underneath this panel.
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.AllButtons
+                }
+
+                Text {
+                    id: mixerTitle
+                    anchors { top: parent.top; left: parent.left; topMargin: 15; leftMargin: 20 }
+                    text: i18n.appVolumeTitle
+                    color: window.themeSubtext
+                    font.family: window.uiFont
+                    font.weight: Font.DemiBold
+                    font.pixelSize: 11
+                    font.capitalization: Font.AllUppercase
+                    font.letterSpacing: 1
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    visible: window.appStreams.length === 0
+                    text: i18n.appVolumeEmpty
+                    color: window.themeMuted
+                    font.family: window.uiFont
+                    font.pixelSize: 11
+                }
+
+                // A row per application, full panel width. Vertical channel
+                // strips matched the home meters more closely but ran out of
+                // room past four apps, and a browser plus a music player plus a
+                // chat client is an ordinary afternoon.
+                Column {
+                    anchors {
+                        top: mixerTitle.bottom
+                        left: parent.left
+                        right: parent.right
+                        topMargin: 10
+                        leftMargin: 22
+                        rightMargin: 22
+                    }
+                    spacing: 6
+
+                    Repeater {
+                        model: window.appStreams
+
+                        AppVolumeRow {
+                            required property var modelData
+                            width: parent.width
+                            appName: modelData.name
+                            iconSource: window.resolveStreamIcon(modelData)
+                            value: modelData.volume
+                            muted: modelData.muted
+                            active: modelData.active
+                            phase: window.visualPhase
+                            fontFamily: window.uiFont
+                            iconFont: window.iconFont
+                            textColor: window.idleView ? window.themeText : window.mediaPanelText
+                            filledColor: window.idleView ? window.themeOn : window.mediaPanelOn
+                            emptyColor: window.idleView ? window.themeTrack : window.mediaPanelTrack
+                            disabledColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
+                            onDraggingChanged: window.setInteracting(dragging)
+                            onMoved: v => window.setAppVolume(modelData, v)
+                            onMuteToggled: window.toggleAppMute(modelData)
+                        }
+                    }
+                }
+            }
+
+            // ----------------------------------------------- queue panel
+            Item {
+                id: queuePanel
+                anchors { left: parent.left; right: parent.right; top: statusStrip.bottom; bottom: parent.bottom }
+                anchors.leftMargin: 20
+                anchors.rightMargin: 20
+                anchors.topMargin: 14
+                anchors.bottomMargin: 18
+                z: 5
+                clip: true
+                visible: opacity > 0.01
+                opacity: window.showQueue ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 20
+                    color: (!window.idleView && window.mediaUsesDarkSurface) ? "#000000" : window.themeSurface
+                    border.width: 1
+                    border.color: window.themeLine
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.AllButtons
+                }
+
+                Row {
+                    id: queueHeader
+                    anchors { top: parent.top; left: parent.left; topMargin: 15; leftMargin: 20 }
+                    spacing: 8
+
+                    Text {
+                        text: i18n.queueTitle
+                        color: window.themeSubtext
+                        font.family: window.uiFont
+                        font.weight: Font.DemiBold
+                        font.pixelSize: 11
+                        font.capitalization: Font.AllUppercase
+                        font.letterSpacing: 1
+                    }
+
+                    // The limitation is named where the user meets it, not only
+                    // in the settings row that switched this on.
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: experimentalLabel.implicitWidth + 10
+                        height: 14
+                        radius: 4
+                        color: window.themeChip
+
+                        Text {
+                            id: experimentalLabel
+                            anchors.centerIn: parent
+                            text: i18n.queueExperimental
+                            color: window.themeMuted
+                            font.family: window.uiFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 8
+                            font.letterSpacing: 1
+                        }
+                    }
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    width: parent.width - 60
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    visible: !window.mediaQueue.supported || window.mediaQueue.tracks.length === 0
+                    // Kept as two distinct messages: "your player never reports
+                    // this" and "the queue happens to be empty" are different
+                    // facts, and collapsing them would read as a bug either way.
+                    text: window.mediaQueue.supported ? i18n.queueEmpty : i18n.queueUnsupported
+                    color: window.themeMuted
+                    font.family: window.uiFont
+                    font.pixelSize: 11
+                }
+
+                // C1 — numbered list. The only variant that needs nothing but
+                // title and artist, which is all a TrackList reliably carries.
+                Column {
+                    visible: window.queueStyle === "list"
+                    anchors {
+                        top: queueHeader.bottom
+                        left: parent.left
+                        right: parent.right
+                        topMargin: 10
+                        leftMargin: 20
+                        rightMargin: 20
+                    }
+                    spacing: 4
+
+                    Repeater {
+                        model: window.queueStyle === "list" ? (window.mediaQueue.tracks || []) : []
+
+                        Row {
+                            required property var modelData
+                            required property int index
+                            width: parent.width
+                            spacing: 12
+
+                            // Numbered because in a queue the position is the
+                            // content: it is what tells the user how far off a
+                            // track is. Elsewhere in this island numbering would
+                            // just be decoration.
+                            Text {
+                                width: 16
+                                horizontalAlignment: Text.AlignRight
+                                text: index + 1
+                                color: window.themeMuted
+                                font.family: window.uiFont
+                                font.pixelSize: 10
+                            }
+
+                            Column {
+                                width: parent.width - 28
+                                spacing: 1
+
+                                Text {
+                                    width: parent.width
+                                    text: modelData.title || "—"
+                                    elide: Text.ElideRight
+                                    color: window.idleView ? window.themeText : window.mediaPanelText
+                                    font.family: window.uiFont
+                                    font.pixelSize: 11
+                                }
+                                Text {
+                                    width: parent.width
+                                    visible: String(modelData.artist || "") !== ""
+                                    text: modelData.artist
+                                    elide: Text.ElideRight
+                                    color: window.themeMuted
+                                    font.family: window.uiFont
+                                    font.pixelSize: 9
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // C2 — cover strip. Closest to the media panel's own artwork
+                // language, but TrackList often carries no art at all, so each
+                // tile falls back to a note glyph rather than a blank hole.
+                Flickable {
+                    visible: window.queueStyle === "covers"
+                    anchors {
+                        top: queueHeader.bottom
+                        left: parent.left
+                        right: parent.right
+                        bottom: parent.bottom
+                        topMargin: 12
+                        leftMargin: 20
+                        rightMargin: 20
+                    }
+                    contentWidth: coverStrip.width
+                    contentHeight: height
+                    flickableDirection: Flickable.HorizontalFlick
+                    clip: true
+
+                    Row {
+                        id: coverStrip
+                        spacing: 10
+
+                        Repeater {
+                            model: window.queueStyle === "covers" ? (window.mediaQueue.tracks || []) : []
+
+                            Column {
+                                required property var modelData
+                                width: 96
+                                spacing: 6
+
+                                Rectangle {
+                                    width: 96
+                                    height: 96
+                                    radius: 12
+                                    color: "#000000"
+                                    border.width: 1
+                                    border.color: window.themeLine
+                                    clip: true
+
+                                    Image {
+                                        id: queueArt
+                                        anchors.fill: parent
+                                        source: String(modelData.art || "").replace("file://", "")
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                    }
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        visible: queueArt.status !== Image.Ready
+                                        text: "󰎈"
+                                        color: "#333333"
+                                        font.family: window.iconFont
+                                        font.pixelSize: 30
+                                    }
+                                }
+
+                                Text {
+                                    width: parent.width
+                                    text: modelData.title || "—"
+                                    elide: Text.ElideRight
+                                    color: window.idleView ? window.themeText : window.mediaPanelText
+                                    font.family: window.uiFont
+                                    font.pixelSize: 10
+                                }
+                                Text {
+                                    width: parent.width
+                                    visible: String(modelData.artist || "") !== ""
+                                    text: modelData.artist
+                                    elide: Text.ElideRight
+                                    color: window.themeMuted
+                                    font.family: window.uiFont
+                                    font.pixelSize: 9
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // C3 — timeline. Answers "how long until my track", which needs
+                // per-track lengths; when the player omits them the offset
+                // column falls back to a plain position marker.
+                Column {
+                    visible: window.queueStyle === "timeline"
+                    anchors {
+                        top: queueHeader.bottom
+                        left: parent.left
+                        right: parent.right
+                        topMargin: 10
+                        leftMargin: 20
+                        rightMargin: 20
+                    }
+                    spacing: 0
+
+                    Repeater {
+                        model: window.queueStyle === "timeline" ? (window.mediaQueue.tracks || []) : []
+
+                        Row {
+                            required property var modelData
+                            required property int index
+                            width: parent.width
+                            spacing: 12
+
+                            Text {
+                                width: 48
+                                horizontalAlignment: Text.AlignRight
+                                text: window.queueOffsetLabel(index)
+                                color: window.themeMuted
+                                font.family: window.uiFont
+                                font.pixelSize: 10
+                            }
+
+                            // The rail is drawn per row rather than as one line
+                            // behind the column so it stops at the last knot
+                            // instead of trailing into empty space.
+                            Item {
+                                width: 7
+                                height: 30
+
+                                Rectangle {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    y: 11
+                                    width: 1
+                                    height: 19
+                                    color: window.themeLine
+                                    visible: index < (window.mediaQueue.tracks.length - 1)
+                                }
+                                Rectangle {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    y: 5
+                                    width: 7
+                                    height: 7
+                                    radius: 3.5
+                                    color: window.themeMuted
+                                }
+                            }
+
+                            Column {
+                                width: parent.width - 79
+                                spacing: 1
+
+                                Text {
+                                    width: parent.width
+                                    text: modelData.title || "—"
+                                    elide: Text.ElideRight
+                                    color: window.idleView ? window.themeText : window.mediaPanelText
+                                    font.family: window.uiFont
+                                    font.pixelSize: 11
+                                }
+                                Text {
+                                    width: parent.width
+                                    visible: String(modelData.artist || "") !== ""
+                                    text: modelData.artist
+                                    elide: Text.ElideRight
+                                    color: window.themeMuted
+                                    font.family: window.uiFont
+                                    font.pixelSize: 9
+                                }
+                            }
                         }
                     }
                 }
@@ -2891,6 +3635,48 @@ PanelWindow {
             color: window.themeSubtext
             font.family: window.uiFont
             font.pixelSize: 10
+        }
+    }
+
+    // A miniature of PanelChip for the one place that cannot use it: these sit
+    // on the cover-art scrim, which deliberately ignores the theme (see the note
+    // on its container), so the colors are fixed light-on-dark rather than theme
+    // tokens — themeChip/themeOn would disappear against it on the white theme.
+    component PlayerChip: Rectangle {
+        id: pchip
+        property string text: ""
+        property bool lit: false
+        signal triggered()
+
+        implicitWidth: Math.min(56, pchipLabel.implicitWidth + 10)
+        implicitHeight: 13
+        radius: 4
+        color: pchip.lit ? "#26ffffff" : "transparent"
+        Behavior on color { ColorAnimation { duration: 160 } }
+        scale: pchipHit.pressed ? 0.92 : 1
+        Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+
+        Text {
+            id: pchipLabel
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, pchip.width - 8)
+            text: pchip.text
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignHCenter
+            color: pchip.lit ? "#ffffff" : "#8a8a8a"
+            font.family: window.uiFont
+            font.capitalization: Font.AllUppercase
+            font.letterSpacing: 1
+            font.pixelSize: 8
+            font.weight: pchip.lit ? Font.Bold : Font.Normal
+            Behavior on color { ColorAnimation { duration: 160 } }
+        }
+        MouseArea {
+            id: pchipHit
+            anchors.fill: parent
+            anchors.margins: -2
+            hoverEnabled: true
+            onClicked: pchip.triggered()
         }
     }
 

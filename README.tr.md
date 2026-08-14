@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/logo.svg" width="96" alt="Dynamic Island logosu">
+
 # Quickshell için Dynamic Island
 
 Hyprland ve Quickshell için ayarlanabilir bir Dynamic Island masaüstü widget'ı —
@@ -93,6 +95,13 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 - **Satır içi yanıt** — KDE tarzı bir `inline-reply` aksiyonu taşıyan bildirimler
   bir metin kutusu ve gönder düğmesi alır; gerçek `NotificationReplied` D-Bus
   sinyaline bağlıdır.
+- **Uygulama başına ses mikseri** — her PipeWire çalma akışı, uygulamaya göre
+  gruplanır; birden çok sekmesi açık bir tarayıcı tek bir satırdır, akış
+  başına bir satır değil. Sürükleyerek ses seviyesi ayarlanır ya da dokunarak
+  susturulur; her ikisi de o uygulamaya ait tüm akışlara uygulanır.
+- **Sıradaki parçalar** — MPRIS'in isteğe bağlı TrackList arayüzünü destekleyen
+  oynatıcılar için bir sıra paneli. Bunu desteklemeyen (çoğu) oynatıcıda
+  gizemli biçimde boş kalmak yerine "desteklenmiyor" durumuna düşer.
 - **İngilizce ve Türkçe** — panelde bir çip veya IPC ile değiştirilebilir, ve
   yeniden başlatmalar arasında hatırlanır. Her metin tek bir dosyada; üçüncü
   bir dil eklemek arayüzde sabit metin aramak değil, oradaki her satıra bir
@@ -333,7 +342,9 @@ Main.qml                 ShellRoot giriş noktası
 └── DynamicIslandHost    Quickshell.screens üzerinde Variants — monitör başına bir ada
     └── DynamicIsland    Yüzey: durum makinesi, yerleşim, tüm animasyonlar
         ├── Strings      Her kullanıcıya görünen metin, İngilizce ve Türkçe
+        ├── SettingsMenu Tam ayar yüzeyi: temalar, saat, bildirim/arama, dil
         ├── BarMeter     Sürüklenebilir segment ölçer (ses / parlaklık / mikrofon)
+        ├── AppVolumeRow Uygulama başına mikserin tek satırı (ad, sustur, sürükle-ayarla)
         ├── PixelClock   Pixel saati, saniyeleri ve tarih satırını birleştirir
         │   └── PixelText  Dikey rakam yuvarlamalı canvas bitmap metin motoru
         │       └── pixelfont.js  5×7 glif tablosu + dile göre gün/ay adları

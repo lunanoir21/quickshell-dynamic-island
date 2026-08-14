@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/logo.svg" width="96" alt="Dynamic Island logo">
+
 # Dynamic Island for Quickshell
 
 A configurable Dynamic Island desktop widget for Hyprland and Quickshell — an
@@ -94,6 +96,13 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 - **Inline reply** — notifications carrying a KDE-style `inline-reply` action
   get a text field and a send button, wired to the real
   `NotificationReplied` D-Bus signal.
+- **Per-app volume mixer** — every PipeWire playback stream, grouped by
+  application so a browser with several tabs open is one row, not one per
+  stream. Drag to set volume or tap to mute, both applied to every stream that
+  app owns.
+- **Up next** — a queue panel for players that expose MPRIS's optional
+  TrackList interface. Degrades to "not supported" rather than staying
+  mysteriously empty for the (most) players that don't.
 - **English and Turkish** — switchable from a chip in the panel or over IPC,
   and remembered across restarts. Every string lives in one file, so a third
   language is a matter of adding one branch per line there, not hunting
@@ -332,7 +341,9 @@ Main.qml                 ShellRoot entry point
 └── DynamicIslandHost    Variants over Quickshell.screens — one island per monitor
     └── DynamicIsland    The surface: state machine, layout, every animation
         ├── Strings      Every user-visible string, in English and Turkish
+        ├── SettingsMenu Full settings surface: themes, clock, notifications/calls, language
         ├── BarMeter     Draggable segment meter (volume / brightness / mic)
+        ├── AppVolumeRow One row of the per-app mixer (name, mute, drag-to-set volume)
         ├── PixelClock   Composes the pixel time, seconds and date line
         │   └── PixelText  Canvas bitmap-text renderer with vertical digit rolls
         │       └── pixelfont.js  5×7 glyph table + per-language day/month names

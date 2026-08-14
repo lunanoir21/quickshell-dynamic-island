@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">Dynamic Island for Quickshell</title>
+  <desc id="desc">A dark editorial cover showing the Dynamic Island media player, waveform, themes and pixel clock.</desc>
+  <defs>
+    <style>
+      @font-face {
+        font-family: "Bricolage";
+        src: url("../assets/BricolageGrotesque.ttf");
+      }
+      .display { font-family: "Bricolage", "Arial Black", sans-serif; }
+      .utility { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; }
+    </style>
+    <linearGradient id="background" x1="82" y1="30" x2="1186" y2="624" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28251F"/>
+      <stop offset="0.48" stop-color="#171714"/>
+      <stop offset="1" stop-color="#090A0C"/>
+    </linearGradient>
+    <linearGradient id="chrome" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/>
+    </linearGradient>
+    <linearGradient id="fade" x1="704" y1="183" x2="1237" y2="515" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="spot" cx="0" cy="0" r="1" gradientTransform="translate(971 338) rotate(90) scale(330 455)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A8ADB5" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#A8ADB5" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="cardShadow" x="630" y="116" width="646" height="424" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="28" stdDeviation="24" flood-color="#000000" flood-opacity="0.55"/>
+    </filter>
+    <filter id="pillShadow" x="-24" y="-24" width="410" height="110" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#000000" flood-opacity="0.75"/>
+    </filter>
+    <clipPath id="previewClip">
+      <rect x="674" y="152" width="542" height="218" rx="29"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1280" height="640" rx="28" fill="url(#background)"/>
+  <rect x="1" y="1" width="1278" height="638" rx="27" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="2"/>
+  <ellipse cx="1000" cy="330" rx="456" ry="332" fill="url(#spot)"/>
+
+  <g fill="none" stroke="#FFFFFF" stroke-opacity="0.055" stroke-width="1.5">
+    <path d="M629 76C762 10 1015 9 1217 100C1315 144 1355 229 1322 309"/>
+    <path d="M592 51C748 -33 1039 -25 1250 75C1354 124 1401 224 1361 326"/>
+    <path d="M598 602C741 668 1017 689 1231 590C1329 545 1373 469 1341 387"/>
+    <path d="M642 572C774 628 1015 640 1203 554C1292 513 1329 452 1301 393"/>
+  </g>
+
+  <g transform="translate(72 60)">
+    <rect width="48" height="48" rx="14" fill="#060607" stroke="#FFFFFF" stroke-opacity="0.16"/>
+    <rect x="8" y="15" width="32" height="18" rx="9" fill="#F4F5F7"/>
+    <g fill="#060607">
+      <rect x="13" y="21" width="3" height="6" rx="1.5"/>
+      <rect x="18" y="18" width="3" height="12" rx="1.5"/>
+      <rect x="23" y="20" width="3" height="8" rx="1.5"/>
+      <rect x="28" y="17" width="3" height="14" rx="1.5"/>
+      <rect x="33" y="21" width="3" height="6" rx="1.5"/>
+    </g>
+  </g>
+  <text x="134" y="80" fill="#F4F5F7" class="display" font-size="17" font-weight="650" letter-spacing="0.2">QUICKSHELL / HYPRLAND</text>
+  <text x="134" y="101" fill="#92969D" class="utility" font-size="10" font-weight="600" letter-spacing="1.7">ADAPTIVE DESKTOP SURFACE</text>
+
+  <text x="72" y="220" fill="#F7F7F5" class="display" font-size="72" font-weight="760" letter-spacing="-3.6">Dynamic</text>
+  <text x="72" y="289" fill="#F7F7F5" class="display" font-size="72" font-weight="760" letter-spacing="-3.6">Island.</text>
+  <rect x="75" y="314" width="44" height="4" rx="2" fill="#F5F5F3"/>
+  <rect x="127" y="314" width="18" height="4" rx="2" fill="#7A7E84"/>
+  <rect x="153" y="314" width="9" height="4" rx="2" fill="#494C50"/>
+
+  <text x="72" y="363" fill="#B8BABE" class="display" font-size="20" font-weight="430">
+    <tspan x="72" dy="0">Media, motion and privacy —</tspan>
+    <tspan x="72" dy="29">one surface at the top of your screen.</tspan>
+  </text>
+
+  <g class="utility" font-size="11" font-weight="650" letter-spacing="1.1">
+    <g transform="translate(72 444)">
+      <rect width="112" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+      <circle cx="18" cy="17" r="3" fill="#E8EAED"/>
+      <text x="30" y="21" fill="#D7D9DD">MPRIS</text>
+    </g>
+    <g transform="translate(194 444)">
+      <rect width="100" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+      <path d="M16 21V13M21 23V11M26 19V15" stroke="#E8EAED" stroke-width="2" stroke-linecap="round"/>
+      <text x="37" y="21" fill="#D7D9DD">CAVA</text>
+    </g>
+    <g transform="translate(304 444)">
+      <rect width="120" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+      <rect x="15" y="12" width="10" height="10" rx="2" fill="none" stroke="#E8EAED" stroke-width="1.5"/>
+      <text x="35" y="21" fill="#D7D9DD">THEMES</text>
+    </g>
+  </g>
+
+  <g transform="translate(72 548)">
+    <text y="0" fill="#777B82" class="utility" font-size="10" font-weight="600" letter-spacing="1.7">OPEN SOURCE · QML · WAYLAND</text>
+    <rect y="18" width="390" height="1" fill="#FFFFFF" fill-opacity="0.10"/>
+  </g>
+
+  <g filter="url(#cardShadow)">
+    <rect x="658" y="136" width="574" height="250" rx="38" fill="url(#chrome)"/>
+    <rect x="660" y="138" width="570" height="246" rx="36" fill="#08090B"/>
+    <image x="674" y="152" width="542" height="218" xlink:href="screenshots/changelog/media-animation.png" preserveAspectRatio="xMidYMid slice" clip-path="url(#previewClip)"/>
+    <rect x="674.5" y="152.5" width="541" height="217" rx="28.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  </g>
+
+  <text x="786" y="446" fill="#777B82" class="utility" font-size="9" font-weight="650" letter-spacing="1.4">COLLAPSED / STILL IN CONTROL</text>
+  <g transform="translate(786 458)" filter="url(#pillShadow)">
+    <rect width="362" height="62" rx="31" fill="#020203" stroke="#FFFFFF" stroke-opacity="0.16"/>
+    <g fill="#A5A8AE">
+      <rect x="21" y="25" width="4" height="12" rx="2" opacity="0.55"/>
+      <rect x="29" y="20" width="4" height="22" rx="2" opacity="0.70"/>
+      <rect x="37" y="16" width="4" height="30" rx="2" opacity="0.85"/>
+      <rect x="45" y="22" width="4" height="18" rx="2"/>
+      <rect x="53" y="18" width="4" height="26" rx="2" opacity="0.75"/>
+    </g>
+    <rect x="71" y="11" width="40" height="40" rx="12" fill="#292B30"/>
+    <path d="M79 39L88 29L94 34L99 27L104 39H79Z" fill="#AEB1B7"/>
+    <text x="124" y="27" fill="#F5F5F3" class="display" font-size="14" font-weight="700">Now playing</text>
+    <text x="124" y="43" fill="#7E8289" class="utility" font-size="8" font-weight="600" letter-spacing="0.8">LIVE SPECTRUM</text>
+    <path d="M250 24L240 31L250 38V24Z" fill="#9A9DA3"/>
+    <circle cx="285" cy="31" r="18" fill="#F4F4F2"/>
+    <rect x="279" y="24" width="4" height="14" rx="2" fill="#090A0C"/>
+    <rect x="287" y="24" width="4" height="14" rx="2" fill="#090A0C"/>
+    <path d="M321 24L331 31L321 38V24Z" fill="#9A9DA3"/>
+    <rect x="20" y="55" width="322" height="2" rx="1" fill="#292B30"/>
+    <rect x="20" y="55" width="208" height="2" rx="1" fill="#D8DADE"/>
+  </g>
+
+  <g transform="translate(1090 78)">
+    <text x="0" y="0" fill="#777B82" class="utility" font-size="9" font-weight="650" letter-spacing="1.4">PIXEL CLOCK</text>
+    <text x="0" y="37" fill="#E8E9EB" class="utility" font-size="28" font-weight="800" letter-spacing="-1">09:38</text>
+  </g>
+</svg>

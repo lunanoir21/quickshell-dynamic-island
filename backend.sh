@@ -7,6 +7,10 @@ weather_lock="$base_dir/weather.lock"
 slow_cache="$base_dir/slow.json"
 slow_lock="$base_dir/slow.lock"
 call_state="$base_dir/call.json"
+# Which MPRIS instance the UI has pinned. Runtime state rather than a config
+# value: it only means anything while that player is still running, so it
+# belongs next to call.json, not in the user's settings.
+player_state="$base_dir/player"
 lyrics_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/lyrics"
 thumbnail_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/thumbnails"
 # Where the UI persists user choices (currently just the language). Created
@@ -31,6 +35,29 @@ weather_ttl=900
 # eventually since LRCLIB is community-contributed and gains tracks over time.
 lyrics_miss_ttl=604800
 
+# Every playerctl call in this script goes through the selection resolved here.
+# Without -p, playerctl targets whichever instance it happens to list first,
+# which silently changes under you the moment a second player appears — so the
+# target is decided once and pinned for the rest of the process.
+players_raw=""
+selected_player=""
+player_args=()
+
+resolve_player() {
+    players_raw=$(timeout 1 playerctl -l 2>/dev/null || true)
+    selected_player=""
+    [[ -s "$player_state" ]] && selected_player=$(<"$player_state")
+    # A stored pick only means something while that instance is still alive.
+    # When it goes away (tab closed, app quit) fall back to the first listed
+    # player — which is exactly what playerctl did before any of this existed,
+    # so nothing regresses for the single-player case.
+    if [[ -z "$selected_player" ]] || ! grep -qxF "$selected_player" <<<"$players_raw"; then
+        selected_player=$(head -n1 <<<"$players_raw")
+    fi
+    player_args=()
+    [[ -n "$selected_player" ]] && player_args=(-p "$selected_player")
+}
+
 # Extracts the canonical 11-character id from the common YouTube URL shapes
 # emitted by browser MPRIS bridges. Keeping this here (rather than in QML)
 # covers youtube.com, music/mobile hosts, youtu.be, Shorts, Live and embeds in
@@ -54,7 +81,13 @@ youtube_id_from_url() {
 # is tried high-to-low, but tiny YouTube "maxres unavailable" placeholders are
 # rejected so they can never be mistaken for a successful cover.
 youtube_art_for() {
-    local id="$1" cache="$thumbnail_dir/$id.jpg" lock="$thumbnail_dir/$id.lock"
+    # Split rather than chained: bash expands every word of a `local` command
+    # before running it, so a later assignment referring to an earlier one on
+    # the same line reads it while it is still unset — which under `set -u`
+    # killed this function's subshell outright and left YouTube covers blank.
+    local id="$1"
+    local cache="$thumbnail_dir/$id.jpg"
+    local lock="$thumbnail_dir/$id.lock"
 
     if [[ -s "$cache" ]]; then
         printf 'file://%s' "$cache"
@@ -263,7 +296,125 @@ refresh_slow() {
     ) >/dev/null 2>&1 &
 }
 
+# Per-application playback streams, for the volume mixer panel.
+#
+# Grouped by application rather than listed per stream: browsers open one sink
+# input per tab (and per media element), so a raw stream list is four "Firefox"
+# rows the user cannot tell apart. One row per app, driving every stream that
+# app owns, is what "per-application volume" actually means to someone looking
+# at the panel. Emits TSV because jq does the escaping better than awk would.
+app_streams() {
+    command -v pactl >/dev/null 2>&1 || { printf '[]'; return; }
+
+    pactl list sink-inputs 2>/dev/null | awk '
+        function unquote(s) { sub(/^[^=]*= "/, "", s); sub(/"$/, "", s); return s }
+        function emit() {
+            if (idx == "") return
+            if (name == "") name = binname
+            if (name == "") name = "?"
+            printf "%s\t%s\t%d\t%s\t%s\t%s\n", idx, name, vol, mute, cork, binname
+            idx = ""
+        }
+        /^Sink Input #/ { emit(); idx = substr($3, 2); name=""; binname=""; vol=0; mute="no"; cork="no"; next }
+        idx == "" { next }
+        /^[[:space:]]*Corked:/ { cork = $2; next }
+        /^[[:space:]]*Mute:/ { mute = $2; next }
+        # Only the first channel percentage is read; the island shows one bar
+        # per app, so a per-channel balance has nothing to render into.
+        /^[[:space:]]*Volume:/ { if (match($0, /[0-9]+%/)) vol = substr($0, RSTART, RLENGTH - 1); next }
+        /application\.name = / { name = unquote($0); next }
+        /application\.process\.binary = / { binname = unquote($0); next }
+        END { emit() }
+    ' | jq -Rsc '
+        split("\n") | map(select(length > 0)) | map(split("\t")) | map({
+            index: .[0],
+            name: .[1],
+            volume: (.[2] | tonumber),
+            muted: (.[3] == "yes"),
+            active: (.[4] == "no"),
+            binary: (.[5] // "")
+        })
+        | group_by(.name) | map({
+            name: .[0].name,
+            binary: .[0].binary,
+            indexes: (map(.index) | join(",")),
+            volume: (map(.volume) | max),
+            muted: (map(.muted) | all),
+            active: (map(.active) | any)
+        })'
+}
+
+# Best-effort "up next", and the only part of this script that talks D-Bus
+# directly.
+#
+# MPRIS has no general queue concept: a player only exposes one if it implements
+# the optional TrackList interface, which browsers do not and most others skip.
+# The root interface answers HasTrackList itself, so asking costs one cheap
+# property read rather than an introspection dump. Everything here degrades to
+# {"supported":false} rather than guessing, because a panel that says "this
+# player doesn't report a queue" is honest and one that stays mysteriously empty
+# is not.
+track_queue() {
+    local player="$1"
+    local unsupported='{"supported":false,"tracks":[]}'
+
+    [[ -n "$player" ]] || { printf '%s' "$unsupported"; return; }
+    command -v busctl >/dev/null 2>&1 || { printf '%s' "$unsupported"; return; }
+
+    local bus="org.mpris.MediaPlayer2.$player" has
+    has=$(timeout 1 busctl --user --json=short get-property "$bus" /org/mpris/MediaPlayer2 \
+        org.mpris.MediaPlayer2 HasTrackList 2>/dev/null | jq -r '.data' 2>/dev/null)
+    [[ "$has" == "true" ]] || { printf '%s' "$unsupported"; return; }
+
+    local paths
+    paths=$(timeout 1 busctl --user --json=short get-property "$bus" /org/mpris/MediaPlayer2 \
+        org.mpris.MediaPlayer2.TrackList Tracks 2>/dev/null | jq -r '.data[]?' 2>/dev/null)
+    [[ -n "$paths" ]] || { printf '{"supported":true,"tracks":[]}'; return; }
+
+    local -a track_args=()
+    local count=0 path
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        track_args+=("$path")
+        count=$((count + 1))
+    done <<<"$paths"
+
+    local meta current
+    meta=$(timeout 2 busctl --user --json=short call "$bus" /org/mpris/MediaPlayer2 \
+        org.mpris.MediaPlayer2.TrackList GetTracksMetadata ao "$count" "${track_args[@]}" 2>/dev/null)
+    [[ -n "$meta" ]] || { printf '{"supported":true,"tracks":[]}'; return; }
+
+    # Everything before the playing track has already been heard, so "up next"
+    # is whatever follows it in the list.
+    current=$(timeout 1 busctl --user --json=short get-property "$bus" /org/mpris/MediaPlayer2 \
+        org.mpris.MediaPlayer2.Player Metadata 2>/dev/null \
+        | jq -r '.data["mpris:trackid"].data // ""' 2>/dev/null)
+
+    printf '%s' "$meta" | jq -c --arg current "$current" '
+        # busctl wraps each variant as {type,data}; unwrap to plain values. The
+        # reply may arrive as a bare array or wrapped in the method-call tuple.
+        def unwrap(entry; key): (entry[key].data // null);
+        [ ((.data[0]? // .data? // []) | if type == "array" then .[] else empty end) | {
+            id:     (unwrap(.; "mpris:trackid") // ""),
+            title:  (unwrap(.; "xesam:title") // ""),
+            artist: ((unwrap(.; "xesam:artist") // "")
+                     | if type == "array" then (.[0] // "") else . end),
+            # Both are optional and frequently absent — the cover-strip and
+            # timeline layouts have to degrade when a player omits them.
+            art:    (unwrap(.; "mpris:artUrl") // ""),
+            length: (((unwrap(.; "mpris:length") // 0) | tonumber? // 0) / 1000000 | floor)
+        } ]
+        | (map(.id) | index($current)) as $at
+        | { supported: true, tracks: (if $at == null then . else .[$at + 1:] end) }
+    ' 2>/dev/null || printf '{"supported":true,"tracks":[]}'
+}
+
 json_snapshot() {
+    # Which optional, expensive sections to build. The mixer shells out to
+    # pactl and parses every stream, which has no business running on each of
+    # the ~800ms polls when nobody is looking at it.
+    local want="${1:-}"
+
     refresh_weather
     refresh_slow
 
@@ -274,7 +425,8 @@ json_snapshot() {
     # update while playing, whereas playerctl's normalized {{position}} adds
     # elapsed real time on top of it — the only one of the two that tracks a
     # playing track at all.
-    media=$(timeout 1 playerctl metadata --format \
+    resolve_player
+    media=$(timeout 1 playerctl "${player_args[@]}" metadata --format \
         '{{status}}§|§{{title}}§|§{{artist}}§|§{{mpris:artUrl}}§|§{{mpris:length}}§|§{{playerName}}§|§{{position}}§|§{{xesam:url}}' \
         2>/dev/null | head -n1 || true)
     # Split on the §|§ delimiter; parameter expansion handles multi-char safely.
@@ -317,8 +469,8 @@ json_snapshot() {
     shuffle="Off"
     loop="None"
     if [[ "$status" != "Stopped" ]]; then
-        shuffle=$(timeout 1 playerctl shuffle 2>/dev/null | head -n1 || true)
-        loop=$(timeout 1 playerctl loop 2>/dev/null | head -n1 || true)
+        shuffle=$(timeout 1 playerctl "${player_args[@]}" shuffle 2>/dev/null | head -n1 || true)
+        loop=$(timeout 1 playerctl "${player_args[@]}" loop 2>/dev/null | head -n1 || true)
         [[ -n "$shuffle" ]] || shuffle="Off"
         [[ -n "$loop" ]] || loop="None"
     fi
@@ -397,6 +549,26 @@ json_snapshot() {
     fullscreen=${hypr##*$'\t'}
     [[ "$fullscreen" =~ ^[0-9]+$ ]] || fullscreen=0
 
+    # One jq pass turns the newline-separated instance list into the array the
+    # switcher renders. The label drops playerctl's ".instanceN" suffix so two
+    # windows of the same browser don't produce two unreadable chips.
+    local players_json
+    players_json=$(printf '%s' "$players_raw" | jq -Rsc --arg sel "$selected_player" '
+        split("\n") | map(select(length > 0)) | map({
+            name: .,
+            label: (split(".")[0]),
+            selected: (. == $sel)
+        })' 2>/dev/null || true)
+    [[ -n "$players_json" ]] || players_json="[]"
+
+    local apps_json="[]"
+    [[ "$want" == *apps* ]] && apps_json=$(app_streams)
+    [[ -n "$apps_json" ]] || apps_json="[]"
+
+    local queue_json='{"supported":false,"tracks":[]}'
+    [[ "$want" == *queue* ]] && queue_json=$(track_queue "$selected_player")
+    [[ -n "$queue_json" ]] || queue_json='{"supported":false,"tracks":[]}'
+
     local weather slow
     [[ -s "$weather_cache" ]] && weather=$(<"$weather_cache") || weather='{"icon":"󰖐","temp":"--°","apparent":"--°"}'
     [[ -s "$slow_cache" ]] && slow=$(<"$slow_cache") \
@@ -414,8 +586,13 @@ json_snapshot() {
         --argjson weather "$weather" --argjson slow "$slow" \
         --arg activeWindow "$active_window" --argjson fullscreen "$fullscreen" \
         --argjson callActive "$call_active" --arg callApp "$call_app" --argjson callDuration "$call_duration" \
+        --argjson players "$players_json" --argjson apps "$apps_json" \
+        --argjson queue "$queue_json" \
         '{
+            apps:$apps,
+            queue:$queue,
             media: {status:$status,title:$title,artist:$artist,art:$art,player:$player,shuffle:$shuffle,loop:$loop,length:$length,position:$position},
+            players:$players,
             volume:$volume, muted:$muted, micVolume:$micVolume, micMuted:$micMuted, micActive:$micActive,
             brightness:$brightness, battery:$battery, batteryStatus:$batteryStatus,
             batteryTime:$slow.batteryTime, bluetooth:$slow.bluetooth,
@@ -431,22 +608,43 @@ json_snapshot() {
 }
 
 case "${1:-snapshot}" in
-    snapshot) json_snapshot ;;
+    snapshot) json_snapshot "${2:-}" ;;
     play-pause|next|previous)
-        timeout 2 playerctl "$1" >/dev/null 2>&1 || true ;;
+        resolve_player
+        timeout 2 playerctl "${player_args[@]}" "$1" >/dev/null 2>&1 || true ;;
     seek)
-        timeout 2 playerctl position "${2:-0}" >/dev/null 2>&1 || true ;;
+        resolve_player
+        timeout 2 playerctl "${player_args[@]}" position "${2:-0}" >/dev/null 2>&1 || true ;;
+    select-player)
+        printf '%s' "${2:-}" > "$player_state.tmp" && mv "$player_state.tmp" "$player_state" ;;
     volume)
         wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ "${2:-50}%" >/dev/null 2>&1 || true ;;
     mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle >/dev/null 2>&1 || true ;;
     mic-volume)
         wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SOURCE@ "${2:-50}%" >/dev/null 2>&1 || true ;;
     mic-mute) wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle >/dev/null 2>&1 || true ;;
-    shuffle) playerctl shuffle Toggle >/dev/null 2>&1 || true ;;
+    # $2 is the comma-separated stream list one app owns (see app_streams), so
+    # every stream of that app moves together and none drift out of sync.
+    app-volume)
+        IFS=',' read -ra app_idx <<< "${2:-}"
+        for i in "${app_idx[@]}"; do
+            [[ -n "$i" ]] && pactl set-sink-input-volume "$i" "${3:-50}%" >/dev/null 2>&1 || true
+        done ;;
+    # The target state is passed in rather than toggled per stream: toggling
+    # each one individually would invert an app whose streams disagree.
+    app-mute)
+        IFS=',' read -ra app_idx <<< "${2:-}"
+        for i in "${app_idx[@]}"; do
+            [[ -n "$i" ]] && pactl set-sink-input-mute "$i" "${3:-1}" >/dev/null 2>&1 || true
+        done ;;
+    shuffle)
+        resolve_player
+        playerctl "${player_args[@]}" shuffle Toggle >/dev/null 2>&1 || true ;;
     loop)
-        current=$(playerctl loop 2>/dev/null || echo None)
+        resolve_player
+        current=$(playerctl "${player_args[@]}" loop 2>/dev/null || echo None)
         [[ "$current" == "None" ]] && next=Playlist || { [[ "$current" == "Playlist" ]] && next=Track || next=None; }
-        playerctl loop "$next" >/dev/null 2>&1 || true ;;
+        playerctl "${player_args[@]}" loop "$next" >/dev/null 2>&1 || true ;;
     brightness) brightnessctl set "${2:-50}%" >/dev/null 2>&1 || true ;;
     lyrics) lyrics_for "${2:-}" "${3:-}" "${4:-0}" ;;
     visualizer)
