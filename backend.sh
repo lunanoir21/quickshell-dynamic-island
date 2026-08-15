@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -u
 
+# Resolved from this script rather than the caller's cwd, so bundled assets
+# (the completion chime) are found wherever the project was cloned.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 base_dir="${XDG_RUNTIME_DIR:-/tmp}/quickshell/dynamic-island"
 weather_cache="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/weather.json"
 weather_lock="$base_dir/weather.lock"
@@ -251,7 +255,7 @@ refresh_slow() {
     (
         trap 'rmdir "$slow_lock" 2>/dev/null' EXIT
 
-        local battery_time bt_device camera_active wifi
+        local battery_time bt_device bt_powered camera_active wifi wifi_powered
         local weather_temp weather_icon weather_script
 
         battery_time=""
@@ -265,11 +269,17 @@ refresh_slow() {
         fi
 
         bt_device=$(timeout 2 bluetoothctl devices Connected 2>/dev/null | sed -n '1s/^Device [^ ]* //p' || true)
+        bt_powered=false
+        if timeout 2 bluetoothctl show 2>/dev/null | grep -q 'Powered: yes'; then bt_powered=true; fi
 
         camera_active=false
         if command -v fuser >/dev/null 2>&1 && fuser /dev/video* >/dev/null 2>&1; then camera_active=true; fi
 
         wifi=$(iwgetid -r 2>/dev/null || true)
+        wifi_powered=true
+        if command -v nmcli >/dev/null 2>&1; then
+            [[ "$(nmcli radio wifi 2>/dev/null)" == "enabled" ]] || wifi_powered=false
+        fi
 
         weather_temp=""
         weather_icon=""
@@ -287,10 +297,10 @@ refresh_slow() {
         fi
 
         jq -nc \
-            --arg batteryTime "$battery_time" --arg bluetooth "$bt_device" \
-            --argjson cameraActive "$camera_active" --arg wifi "$wifi" \
+            --arg batteryTime "$battery_time" --arg bluetooth "$bt_device" --argjson bluetoothPowered "$bt_powered" \
+            --argjson cameraActive "$camera_active" --arg wifi "$wifi" --argjson wifiPowered "$wifi_powered" \
             --arg weatherTemp "$weather_temp" --arg weatherIcon "$weather_icon" \
-            '{batteryTime:$batteryTime,bluetooth:$bluetooth,cameraActive:$cameraActive,wifi:$wifi,weatherTemp:$weatherTemp,weatherIcon:$weatherIcon}' \
+            '{batteryTime:$batteryTime,bluetooth:$bluetooth,bluetoothPowered:$bluetoothPowered,cameraActive:$cameraActive,wifi:$wifi,wifiPowered:$wifiPowered,weatherTemp:$weatherTemp,weatherIcon:$weatherIcon}' \
             > "$slow_cache.tmp"
         mv "$slow_cache.tmp" "$slow_cache"
     ) >/dev/null 2>&1 &
@@ -572,7 +582,7 @@ json_snapshot() {
     local weather slow
     [[ -s "$weather_cache" ]] && weather=$(<"$weather_cache") || weather='{"icon":"󰖐","temp":"--°","apparent":"--°"}'
     [[ -s "$slow_cache" ]] && slow=$(<"$slow_cache") \
-        || slow='{"batteryTime":"","bluetooth":"","cameraActive":false,"wifi":"","weatherTemp":"","weatherIcon":""}'
+        || slow='{"batteryTime":"","bluetooth":"","bluetoothPowered":false,"cameraActive":false,"wifi":"","wifiPowered":true,"weatherTemp":"","weatherIcon":""}'
 
     # A single jq invocation assembles the payload; the cached blobs are merged
     # in the filter so no extra processes are needed to read them.
@@ -595,7 +605,7 @@ json_snapshot() {
             players:$players,
             volume:$volume, muted:$muted, micVolume:$micVolume, micMuted:$micMuted, micActive:$micActive,
             brightness:$brightness, battery:$battery, batteryStatus:$batteryStatus,
-            batteryTime:$slow.batteryTime, bluetooth:$slow.bluetooth,
+            batteryTime:$slow.batteryTime, bluetooth:$slow.bluetooth, bluetoothPowered:$slow.bluetoothPowered,
             weather: {
                 icon: (if ($slow.weatherIcon | length) > 0 then $slow.weatherIcon else $weather.icon end),
                 temp: (if ($slow.weatherTemp | length) > 0 then $slow.weatherTemp else $weather.temp end),
@@ -603,7 +613,7 @@ json_snapshot() {
             },
             cameraActive:$slow.cameraActive,
             call: {active:$callActive, app:$callApp, duration:$callDuration},
-            system: {wifi:$slow.wifi, activeWindow:$activeWindow, fullscreen:$fullscreen}
+            system: {wifi:$slow.wifi, wifiPowered:$slow.wifiPowered, activeWindow:$activeWindow, fullscreen:$fullscreen}
         }'
 }
 
@@ -647,6 +657,35 @@ case "${1:-snapshot}" in
         playerctl "${player_args[@]}" loop "$next" >/dev/null 2>&1 || true ;;
     brightness) brightnessctl set "${2:-50}%" >/dev/null 2>&1 || true ;;
     lyrics) lyrics_for "${2:-}" "${3:-}" "${4:-0}" ;;
+    # Quick-settings tiles. Read the current power state fresh rather than
+    # trusting the (up to 15s stale) slow cache, so a rapid toggle always
+    # flips from where the radio actually is, not from a stale snapshot.
+    bluetooth-toggle)
+        if timeout 2 bluetoothctl show 2>/dev/null | grep -q 'Powered: yes'; then
+            bluetoothctl power off >/dev/null 2>&1 || true
+        else
+            bluetoothctl power on >/dev/null 2>&1 || true
+        fi ;;
+    # Completion chime. Tries the PipeWire player first, then the PulseAudio
+    # one, then ALSA, and finally the freedesktop theme — a machine missing all
+    # four just gets the visual card, same as every other optional dependency
+    # here.
+    chime)
+        sound="$script_dir/assets/timesup.wav"
+        if [[ -r "$sound" ]]; then
+            if command -v pw-play >/dev/null 2>&1; then pw-play "$sound"
+            elif command -v paplay >/dev/null 2>&1; then paplay "$sound"
+            elif command -v aplay >/dev/null 2>&1; then aplay -q "$sound"
+            fi >/dev/null 2>&1 &
+        elif command -v canberra-gtk-play >/dev/null 2>&1; then
+            canberra-gtk-play -i complete >/dev/null 2>&1 &
+        fi ;;
+    wifi-toggle)
+        if [[ "$(nmcli radio wifi 2>/dev/null)" == "enabled" ]]; then
+            nmcli radio wifi off >/dev/null 2>&1 || true
+        else
+            nmcli radio wifi on >/dev/null 2>&1 || true
+        fi ;;
     visualizer)
         if command -v cava >/dev/null 2>&1; then
             exec cava -p <(printf '%s\n' '[general]' 'bars = 16' 'framerate = 30' '[output]' 'method = raw' 'raw_target = /dev/stdout' 'data_format = ascii' 'ascii_max_range = 100' 'channels = mono' '[smoothing]' 'monstercat = 1' 'waves = 0')
