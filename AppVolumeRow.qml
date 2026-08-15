@@ -28,6 +28,10 @@ Item {
     property color filledColor: "#f2f2f2"
     property color emptyColor: "#292929"
     property color disabledColor: "#5a5a5a"
+    // Kept separate from disabledColor: the mute glyph should read as a
+    // status warning, but the rest of a muted row (name, segments) should
+    // just dim like every other disabled control, not turn alarming too.
+    property color alertColor: disabledColor
 
     signal moved(real value)
     signal muteToggled()
@@ -113,7 +117,7 @@ Item {
         width: 18
         horizontalAlignment: Text.AlignHCenter
         text: root.muted ? "󰝟" : "󰕾"
-        color: root.muted ? root.disabledColor : root.textColor
+        color: root.muted ? root.alertColor : root.textColor
         font.family: root.iconFont
         font.pixelSize: 15
         scale: muteHit.pressed ? 0.85 : 1

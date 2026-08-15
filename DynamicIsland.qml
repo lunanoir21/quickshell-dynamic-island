@@ -37,11 +37,27 @@ PanelWindow {
     // silently disabled every close path.
     property bool interacting: false
 
-    property var islandState: ({media:{status:"Stopped",title:"",artist:"",art:"",player:"",shuffle:"Off",loop:"None",length:0,position:0},volume:0,muted:false,micVolume:0,micMuted:false,micActive:false,brightness:0,battery:100,batteryStatus:"",batteryTime:"",bluetooth:"",weather:{icon:"",temp:"",apparent:""},cameraActive:false,call:{active:false,app:"",duration:0},system:{wifi:"",activeWindow:"",fullscreen:0}})
+    property var islandState: ({media:{status:"Stopped",title:"",artist:"",art:"",player:"",shuffle:"Off",loop:"None",length:0,position:0},volume:0,muted:false,micVolume:0,micMuted:false,micActive:false,brightness:0,battery:100,batteryStatus:"",batteryTime:"",bluetooth:"",bluetoothPowered:false,weather:{icon:"",temp:"",apparent:""},cameraActive:false,call:{active:false,app:"",duration:0},system:{wifi:"",wifiPowered:true,activeWindow:"",fullscreen:0}})
 
     property int previousVolume: -1
     property int previousBrightness: -1
     property int previousBattery: -1
+    property bool previousBatteryCharging: false
+
+    // Lets `battery <level> <status>` (see the IPC handler / Makefile) stand
+    // in for the real reading for a few seconds, so the level-based colour and
+    // the charging animation can be exercised without actually draining or
+    // plugging in the machine. Expires on its own rather than needing a
+    // separate "stop testing" call.
+    property var batteryOverride: null
+    readonly property int displayBattery: batteryOverride ? batteryOverride.level : islandState.battery
+    readonly property string displayBatteryStatus: batteryOverride ? batteryOverride.status : islandState.batteryStatus
+    readonly property bool batteryCharging: displayBatteryStatus === "Charging"
+    readonly property int batteryWarnThreshold: 50
+    readonly property int batteryCriticalThreshold: 20
+    readonly property color batteryColor: displayBattery <= batteryCriticalThreshold
+        ? themeStatusAlert
+        : (displayBattery < batteryWarnThreshold ? themeStatusWarn : themeStatusLive)
     property bool previousMicMuted: false
     property bool previousMicActive: false
     property bool previousCameraActive: false
@@ -57,6 +73,10 @@ PanelWindow {
     property string notificationTitle: ""
     property string notificationBody: ""
     property string notificationUid: ""
+    // Brief checkmark swap after a successful copy — not persisted past the
+    // next notification, so it can't lie about a click that happened on a
+    // completely different card.
+    property bool notificationCopied: false
     // Set only when the sender attached a KDE-style "inline-reply" action —
     // Quickshell strips that action out of n.actions itself and surfaces it
     // as these two fields instead, so their presence already means the
@@ -133,6 +153,7 @@ PanelWindow {
         let mapped = classifyCallActions(actions)
         window.notificationVisible = false
         window.deviceEventVisible = false
+        window.deviceEventQueue = []
         window.callDismissed = false
         window.callManualOpen = false
         window.callApp = app
@@ -336,6 +357,14 @@ PanelWindow {
     readonly property color themeScrim: palette.scrim
     readonly property color themeGrid: palette.grid
     readonly property color themeHudFill: palette.islandFill
+
+    // Deliberately outside the palette, same as the call ring: these mark a
+    // live/dangerous state (mic or camera in use, something muted) rather than
+    // decorate the UI, so they stay the same hue in all four themes instead of
+    // being tinted by whichever one is active.
+    readonly property color themeStatusLive: "#3aa863"
+    readonly property color themeStatusAlert: "#c24a4e"
+    readonly property color themeStatusWarn: "#d1a53c"
     readonly property bool mediaUsesDarkSurface: mediaSurfaceMode === "dark"
     readonly property color mediaPanelText: mediaUsesDarkSurface ? "#f5f5f5" : themeText
     readonly property color mediaPanelSubtext: mediaUsesDarkSurface ? "#a8a8a8" : themeSubtext
@@ -908,6 +937,7 @@ PanelWindow {
         hovering = false
         notificationVisible = false
         deviceEventVisible = false
+        deviceEventQueue = []
     }
 
     function closeIsland() {
@@ -989,10 +1019,24 @@ PanelWindow {
         // still be sitting in the field, visible, on a completely unrelated
         // later one.
         replyField.text = ""
+        notificationCopied = false
         deviceEventVisible = false
+        deviceEventQueue = []
         notificationVisible = true
         notificationTimer.restart()
         notificationProgress.restart()
+    }
+
+    // wl-copy takes the text straight as an argument (no shell, no pipe
+    // needed), which sidesteps any quoting/escaping question entirely — the
+    // body reaches the clipboard byte for byte, including quotes and
+    // newlines a shell-string version would have to fight with.
+    function copyNotificationContent() {
+        let text = window.notificationBody || window.notificationTitle
+        if (text === "") return
+        Quickshell.execDetached(["wl-copy", "--", text])
+        window.notificationCopied = true
+        notificationCopiedTimer.restart()
     }
 
     function sendNotificationReply() {
@@ -1011,14 +1055,38 @@ PanelWindow {
         hudTimer.restart()
     }
 
+    // Mic and camera can both change in the same poll tick (any video-call app
+    // grabs both at once), which used to call this twice synchronously: the
+    // second call clobbered the first mid-animation, restarting the pulse and
+    // the dismiss timer before either had a chance to actually play. Queuing
+    // instead means the mic card gets to run its full course before the
+    // camera one takes over, so the two never visually collide.
+    property var deviceEventQueue: []
+    // Brief true pulse driving devicePulseRing's border colour on camera-off
+    // (see the ring's Behavior on border.color) — not an animation target
+    // itself, so the ring's own state binding never gets severed.
+    property bool cameraClosing: false
+
     function showDeviceEvent(type, enabled, value) {
         if (window.callVisible) return
+        if (window.deviceEventVisible) {
+            deviceEventQueue.push({type: type, enabled: enabled, value: value})
+            return
+        }
         notificationVisible = false
+        presentDeviceEvent(type, enabled, value)
+    }
+
+    function presentDeviceEvent(type, enabled, value) {
         deviceEventType = type
         if (type === "camera") {
             deviceEventIcon = enabled ? "󰄀" : "󰄁"
             deviceEventTitle = enabled ? i18n.cameraOn : i18n.cameraOff
             deviceEventSubtitle = enabled ? i18n.cameraOnDetail : i18n.cameraOffDetail
+        } else if (type === "battery") {
+            deviceEventIcon = "󰂃"
+            deviceEventTitle = i18n.batteryLow
+            deviceEventSubtitle = i18n.batteryLowDetail(value)
         } else {
             deviceEventIcon = enabled ? "󰍬" : "󰍭"
             deviceEventTitle = enabled ? i18n.micOn : i18n.micOff
@@ -1027,10 +1095,33 @@ PanelWindow {
         deviceEventVisible = true
         deviceEventTimer.restart()
         devicePulse.restart()
+        // Camera on and off used to play the exact same continuous spin, which
+        // made the card read the same regardless of which one had happened —
+        // the only cue was the glyph and colour. On gets a single decisive
+        // turn, like a lens engaging; off gets a quick shutter-blink instead
+        // of any rotation, so the two are unmistakable at a glance.
+        if (type === "camera") {
+            if (enabled) {
+                cameraSpinOn.restart()
+                cameraFlashPop.restart()
+            } else {
+                cameraShutterBlink.restart()
+                window.cameraClosing = true
+                cameraCloseTintTimer.restart()
+            }
+        }
+    }
+
+    // Only fires on the real 0%→critical crossing (or a manual `batteryAlert`
+    // IPC call for testing) — not on every poll while already critical, or it
+    // would re-show itself every ~1s for as long as the battery stays low.
+    function showBatteryAlert(level) {
+        window.showDeviceEvent("battery", false, level)
     }
 
     IpcHandler {
         target: "dynamicIsland"
+        readonly property bool calendarOpen: window.showCalendarPage
         function toggle(): void { window.lockedOpen = !window.lockedOpen; if (!window.lockedOpen) window.closeIsland() }
         function open(): void { window.lockedOpen = true }
         function close(): void { window.closeIsland() }
@@ -1123,6 +1214,16 @@ PanelWindow {
                             window.activityText = i18n.charging(next.battery)
                             activityTimer.restart()
                         }
+                        // Only on the crossing into critical (just dropped below
+                        // the threshold, or the charger was just pulled while
+                        // already low) — never on every poll while it stays low,
+                        // or the card would re-show itself once a second.
+                        const wasCritical = window.previousBattery >= 0
+                            && window.previousBattery <= window.batteryCriticalThreshold
+                            && window.previousBatteryCharging === false
+                        const nowCritical = next.battery <= window.batteryCriticalThreshold
+                            && next.batteryStatus !== "Charging"
+                        if (nowCritical && !wasCritical) window.showBatteryAlert(next.battery)
                     }
                     let callNow = !!(next.call && next.call.active)
                     if (callNow) {
@@ -1153,6 +1254,7 @@ PanelWindow {
                     window.previousVolume = next.volume
                     window.previousBrightness = next.brightness
                     window.previousBattery = next.battery
+                    window.previousBatteryCharging = next.batteryStatus === "Charging"
                     window.previousMicMuted = next.micMuted
                     window.previousMicActive = next.micActive
                     window.previousCameraActive = next.cameraActive
@@ -1189,9 +1291,15 @@ PanelWindow {
         // locally, so only poll quickly while the panel is actually on screen.
         // Kept reasonably short even when collapsed: the microphone capsule is a
         // privacy indicator and should not lag noticeably behind the hardware.
+        //
+        // The fully-idle case (nothing playing, mic/camera off) is the one that
+        // matters most here: it's the interval a *newly started* mic or camera
+        // use has to wait through before the poll that finally notices it, so
+        // it drives how long "mic turned on" takes to show up, not just how
+        // fresh the indicator looks once already lit.
         interval: window.expanded
             ? 800
-            : (window.mediaStatus === "Playing" || window.islandState.micActive || window.islandState.cameraActive ? 1400 : 2000)
+            : (window.mediaStatus === "Playing" || window.islandState.micActive || window.islandState.cameraActive ? 1200 : 900)
         running: true
         repeat: true
         triggeredOnStart: true
@@ -1199,11 +1307,29 @@ PanelWindow {
     }
     Timer { id: delayedRefresh; interval: 180; onTriggered: if (!snapshot.running) snapshot.running = true }
     Timer { id: hudTimer; interval: 1700 }
+    Timer { id: batteryOverrideTimer; interval: 8000; onTriggered: window.batteryOverride = null }
+    Timer { id: cameraCloseTintTimer; interval: 180; onTriggered: window.cameraClosing = false }
+    Timer { id: notificationCopiedTimer; interval: 1400; onTriggered: window.notificationCopied = false }
     Timer { id: activityTimer; interval: 5000; onTriggered: window.activityText = "" }
     Timer {
         id: deviceEventTimer
         interval: 2800
-        onTriggered: window.deviceEventVisible = false
+        onTriggered: {
+            window.deviceEventVisible = false
+            if (window.deviceEventQueue.length > 0) deviceEventDrain.restart()
+        }
+    }
+    // Waits out the outgoing card's fade (see deviceEventCard's opacity
+    // Behavior, 180ms) before presenting the next queued event, so the two
+    // cards never cross-fade into each other.
+    Timer {
+        id: deviceEventDrain
+        interval: 220
+        onTriggered: {
+            if (window.deviceEventQueue.length === 0) return
+            const next = window.deviceEventQueue.shift()
+            window.presentDeviceEvent(next.type, next.enabled, next.value)
+        }
     }
     Timer {
         id: notificationTimer
@@ -1562,10 +1688,14 @@ PanelWindow {
 
                 Text {
                     visible: !window.compactPlayerMode
-                    text: (window.islandState.batteryStatus === "Charging" ? "󰂄  " : "󰁹  ") + window.islandState.battery + "%"
-                    color: window.themeSubtext
+                    text: (window.batteryCharging ? "󰂄  " : "󰁹  ") + window.displayBattery + "%"
+                    color: window.batteryColor
+                    // Breathes between the level colour and a lighter tint
+                    // while charging; holds steady otherwise.
+                    opacity: window.batteryCharging ? (0.6 + window.batteryPulse * 0.4) : 1
                     font.family: window.iconFont
                     font.pixelSize: 14
+                    Behavior on color { ColorAnimation { duration: 250 } }
                 }
 
                 Row {
@@ -1574,10 +1704,12 @@ PanelWindow {
                     StatusDot {
                         icon: window.islandState.micMuted ? "󰍭" : "󰍬"
                         lit: window.islandState.micActive && !window.islandState.micMuted
+                        statusColored: true
                     }
                     StatusDot {
                         icon: window.islandState.cameraActive ? "󰄀" : "󰄁"
                         lit: window.islandState.cameraActive
+                        statusColored: true
                     }
                 }
             }
@@ -1791,6 +1923,7 @@ PanelWindow {
 
                 PanelChip {
                     icon: "󰅖"
+                    danger: true
                     onTriggered: window.closeIsland()
                 }
             }
@@ -2335,7 +2468,7 @@ PanelWindow {
                             filledColor: window.idleView ? window.themeOn : window.mediaPanelOn
                             emptyColor: window.idleView ? window.themeTrack : window.mediaPanelTrack
                             iconColor: window.idleView ? window.themeText : window.mediaPanelText
-                            disabledColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
+                            disabledColor: window.islandState.muted ? window.themeStatusAlert : (window.idleView ? window.themeMuted : window.mediaPanelMuted)
                             onDraggingChanged: window.setInteracting(dragging)
                             onMoved: v => window.runDirect(["wpctl", "set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SINK@", v + "%"])
                             onIconClicked: window.run(["mute"])
@@ -2367,8 +2500,10 @@ PanelWindow {
                             labelColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
                             filledColor: window.idleView ? window.themeOn : window.mediaPanelOn
                             emptyColor: window.idleView ? window.themeTrack : window.mediaPanelTrack
-                            iconColor: window.idleView ? window.themeText : window.mediaPanelText
-                            disabledColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
+                            iconColor: (window.islandState.micActive && !window.islandState.micMuted)
+                                ? window.themeStatusLive
+                                : (window.idleView ? window.themeText : window.mediaPanelText)
+                            disabledColor: window.islandState.micMuted ? window.themeStatusAlert : (window.idleView ? window.themeMuted : window.mediaPanelMuted)
                             onDraggingChanged: window.setInteracting(dragging)
                             onMoved: v => window.runDirect(["wpctl", "set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SOURCE@", v + "%"])
                             onIconClicked: window.run(["mic-mute"])
@@ -2464,6 +2599,7 @@ PanelWindow {
                             filledColor: window.idleView ? window.themeOn : window.mediaPanelOn
                             emptyColor: window.idleView ? window.themeTrack : window.mediaPanelTrack
                             disabledColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
+                            alertColor: window.themeStatusAlert
                             onDraggingChanged: window.setInteracting(dragging)
                             onMoved: v => window.setAppVolume(modelData, v)
                             onMuteToggled: window.toggleAppMute(modelData)
@@ -2855,15 +2991,166 @@ PanelWindow {
                             anchors.centerIn: parent
                             text: window.deviceEventIcon
                             color: window.themeOnText
+
+        // ---------------------------------------------------------- device card
+        Item {
+            id: deviceEventCard
+            anchors.fill: parent
+            visible: opacity > 0.01
+            opacity: window.deviceEventVisible ? 1 : 0
+            z: 19
+            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+            Rectangle {
+                id: eventSweep
+                y: 1
+                width: 90
+                height: parent.height - 2
+                radius: 30
+                color: window.themeText
+                opacity: 0.04
+                rotation: 18
+                x: -400
+                NumberAnimation on x {
+                    running: window.deviceEventVisible
+                    from: -140
+                    to: deviceEventCard.width + 120
+                    duration: 1400
+                    easing.type: Easing.InOutCubic
+                    // Parked well off-screen on stop instead of freezing wherever
+                    // it happened to be when the card was dismissed.
+                    onRunningChanged: if (!running) eventSweep.x = -400
+                }
+            }
+
+            RowLayout {
+                anchors { fill: parent; leftMargin: 20; rightMargin: 22; topMargin: 12; bottomMargin: 12 }
+                spacing: 16
+
+                Item {
+                    Layout.preferredWidth: 60
+                    Layout.preferredHeight: 60
+
+                    Rectangle {
+                        id: devicePulseRing
+                        anchors.centerIn: parent
+                        width: 56
+                        height: 56
+                        radius: 19
+                        color: "transparent"
+                        border.width: window.deviceEventType === "battery" ? 1.5 : 1
+                        // cameraClosing is a brief pulse (see presentDeviceEvent),
+                        // not an animation targeting this property directly —
+                        // driving it through the binding plus a Behavior keeps
+                        // the binding itself alive, unlike an imperative
+                        // ColorAnimation here would (which snaps it dead the
+                        // first time it runs, per the project's own animation
+                        // convention above).
+                        border.color: window.deviceEventType === "battery" || window.cameraClosing
+                            ? window.themeStatusAlert
+                            : window.themeLineStrong
+                        Behavior on border.color { ColorAnimation { duration: 260 } }
+                        // Battery gets an urgent, fast blink instead of the calm
+                        // sine breathing the other two use — it is the one card
+                        // that means "do something now", not "here's a status".
+                        opacity: window.deviceEventType === "microphone"
+                            ? 0.35 + Math.abs(Math.sin(window.visualPhase)) * 0.6
+                            : (window.deviceEventType === "battery"
+                                ? 0.4 + Math.abs(Math.sin(window.visualPhase * 2.6)) * 0.6
+                                : 0.7)
+                        // One decisive turn when the camera comes on — snappy
+                        // and slightly overshooting, like a mechanical iris
+                        // engaging — not a continuous spin, which used to run
+                        // identically whether the card meant "on" or "off".
+                        RotationAnimation {
+                            id: cameraSpinOn
+                            target: devicePulseRing
+                            property: "rotation"
+                            from: 0
+                            to: 380
+                            duration: 560
+                            easing.type: Easing.OutBack
+                            easing.overshoot: 1.1
+                            onRunningChanged: if (!running) devicePulseRing.rotation = 0
+                        }
+                    }
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 62; height: 62; radius: 21
+                        color: "transparent"
+                        border.width: 1
+                        border.color: window.deviceEventType === "battery" ? Qt.rgba(0.76, 0.29, 0.29, 0.4) : window.themeLine
+                    }
+                    Rectangle {
+                        id: deviceIconBox
+                        anchors.centerIn: parent
+                        width: 42; height: 42; radius: 14
+                        color: window.deviceEventType === "battery" ? window.themeStatusAlert : window.themeOn
+                        Text {
+                            anchors.centerIn: parent
+                            text: window.deviceEventIcon
+                            color: window.deviceEventType === "battery" ? "#ffffff" : window.themeOnText
                             font.family: window.iconFont
                             font.pixelSize: 23
                         }
+
+                        // Camera off: a shutter blade sweeps across the icon
+                        // and fades, in sync with the icon's own scale-dip —
+                        // together they read as the lens physically shutting,
+                        // not just a dimmer version of the "on" pop.
+                        Rectangle {
+                            id: cameraCloseBlade
+                            anchors.centerIn: parent
+                            width: 0
+                            height: 5
+                            radius: 2.5
+                            color: window.themeStatusAlert
+                            opacity: 0
+                        }
+                    }
+
+                    // The camera-on "flash": a quick burst of light behind the
+                    // icon, like a shutter actually firing open. This is the
+                    // one-time cue that made "on" feel decisive rather than
+                    // just a spin nobody has time to notice.
+                    Rectangle {
+                        id: cameraFlash
+                        anchors.centerIn: parent
+                        width: 46; height: 46; radius: 23
+                        color: "#ffffff"
+                        opacity: 0
+                        scale: 0.5
                     }
 
                     SequentialAnimation {
                         id: devicePulse
                         NumberAnimation { target: devicePulseRing; property: "scale"; from: 0.74; to: 1.14; duration: 340; easing.type: Easing.OutBack }
                         NumberAnimation { target: devicePulseRing; property: "scale"; to: 1.0; duration: 240; easing.type: Easing.OutCubic }
+                    }
+
+                    ParallelAnimation {
+                        id: cameraFlashPop
+                        NumberAnimation { target: cameraFlash; property: "scale"; from: 0.5; to: 1.6; duration: 420; easing.type: Easing.OutCubic }
+                        SequentialAnimation {
+                            NumberAnimation { target: cameraFlash; property: "opacity"; from: 0; to: 0.6; duration: 80 }
+                            NumberAnimation { target: cameraFlash; property: "opacity"; to: 0; duration: 320; easing.type: Easing.OutCubic }
+                        }
+                    }
+
+                    SequentialAnimation {
+                        id: cameraShutterBlink
+                        ParallelAnimation {
+                            NumberAnimation { target: deviceIconBox; property: "scale"; to: 0.82; duration: 110; easing.type: Easing.InCubic }
+                            SequentialAnimation {
+                                NumberAnimation { target: cameraCloseBlade; property: "width"; from: 0; to: 34; duration: 110; easing.type: Easing.OutCubic }
+                            }
+                            NumberAnimation { target: cameraCloseBlade; property: "opacity"; from: 0; to: 0.95; duration: 70 }
+                        }
+                        ParallelAnimation {
+                            NumberAnimation { target: deviceIconBox; property: "scale"; to: 1.0; duration: 200; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: cameraCloseBlade; property: "opacity"; to: 0; duration: 180; easing.type: Easing.InCubic }
+                        }
+                        PropertyAction { target: cameraCloseBlade; property: "width"; value: 0 }
                     }
                 }
 
@@ -2900,7 +3187,7 @@ PanelWindow {
                             required property int index
                             width: 3
                             radius: 1.5
-                            color: window.themeSubtext
+                            color: window.themeStatusLive
                             // No Behavior: the driving sine is already smooth, and
                             // animating toward a target that moves every frame
                             // only damps it back down to a flat line.
@@ -2916,7 +3203,7 @@ PanelWindow {
                     Layout.preferredWidth: 9
                     Layout.preferredHeight: 9
                     radius: 4.5
-                    color: window.islandState.cameraActive ? window.themeText : window.themeTrack
+                    color: window.islandState.cameraActive ? window.themeStatusLive : window.themeTrack
                     // Bound to the shared phase rather than a private infinite
                     // loop, so it can never be left mid-blink.
                     opacity: window.islandState.cameraActive
@@ -3015,6 +3302,18 @@ PanelWindow {
                             maximumLineCount: 2
                             elide: Text.ElideRight
                         }
+                    }
+
+                    // Copies the message body to the clipboard — the thing
+                    // worth grabbing from a notification (a code, a link, an
+                    // address) is almost always in the body, not the title,
+                    // which is usually just the sender's name.
+                    PanelChip {
+                        Layout.alignment: Qt.AlignTop
+                        visible: window.notificationBody !== ""
+                        icon: window.notificationCopied ? "󰄬" : "󰆏"
+                        lit: window.notificationCopied
+                        onTriggered: window.copyNotificationContent()
                     }
                 }
 
@@ -3357,6 +3656,7 @@ PanelWindow {
                 anchors.right: parent.right
                 anchors.margins: 12
                 icon: "󰅖"
+                danger: true
                 z: 5
                 onTriggered: window.dismissCallCard()
             }
@@ -3516,6 +3816,12 @@ PanelWindow {
         id: dot
         property string icon: ""
         property bool lit: false
+        // Privacy-sensitive indicators (mic/camera actually in use) get the
+        // live-status green instead of the theme's plain "on" colour, so the
+        // one thing worth noticing at a glance still stands out in a
+        // greyscale UI. Everything else stays grayscale.
+        property bool statusColored: false
+        readonly property color litColor: statusColored ? window.themeStatusLive : window.themeText
         width: 22
         height: 30
 
@@ -3523,7 +3829,7 @@ PanelWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.top
             text: dot.icon
-            color: dot.lit ? window.themeText : window.themeMuted
+            color: dot.lit ? dot.litColor : window.themeMuted
             font.family: window.iconFont
             font.pixelSize: 17
             Behavior on color { ColorAnimation { duration: 200 } }
@@ -3534,7 +3840,7 @@ PanelWindow {
             width: dot.lit ? 14 : 4
             height: 2.5
             radius: 1.25
-            color: dot.lit ? window.themeText : window.themeTrack
+            color: dot.lit ? dot.litColor : window.themeTrack
             Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
             Behavior on color { ColorAnimation { duration: 200 } }
         }
@@ -3688,12 +3994,19 @@ PanelWindow {
         // it is currently in, which no icon can do.
         property string label: ""
         property bool lit: false
+        // The classic close-button convention: this chip closes/dismisses
+        // something, so hovering it should read as "clicking this is
+        // destructive" the same way it does everywhere else on the desktop,
+        // not blend in with the neutral toggle chips next to it.
+        property bool danger: false
+        readonly property bool dangerHover: chip.danger && chipHit.containsMouse
         signal triggered()
 
         implicitWidth: chip.label !== "" ? Math.max(28, chipLabel.implicitWidth + 12) : 28
         implicitHeight: 24
         radius: 9
-        color: chip.lit ? window.themeOn : (chipHit.containsMouse ? window.themeChipHover : window.themeChip)
+        color: chip.lit ? window.themeOn
+            : (chip.dangerHover ? window.themeStatusAlert : (chipHit.containsMouse ? window.themeChipHover : window.themeChip))
         Behavior on color { ColorAnimation { duration: 160 } }
         scale: chipHit.pressed ? 0.9 : 1
         Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
@@ -3702,7 +4015,7 @@ PanelWindow {
             id: chipLabel
             anchors.centerIn: parent
             text: chip.label !== "" ? chip.label : chip.icon
-            color: chip.lit ? window.themeOnText : window.themeSubtext
+            color: chip.lit ? window.themeOnText : (chip.dangerHover ? "#ffffff" : window.themeSubtext)
             font.family: chip.label !== "" ? window.uiFont : window.iconFont
             font.weight: chip.label !== "" ? Font.Bold : Font.Normal
             font.letterSpacing: chip.label !== "" ? 0.5 : 0

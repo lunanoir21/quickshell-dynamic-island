@@ -68,6 +68,11 @@ QtObject {
         return tr ? "󰂄  Şarj ediliyor  " + percent + "%"
                   : "󰂄  Charging  " + percent + "%"
     }
+    readonly property string batteryLow: tr ? "Pil kritik seviyede" : "Battery critically low"
+    function batteryLowDetail(percent) {
+        return tr ? "Kalan  %" + percent + " — şarj cihazını bağlayın"
+                  : percent + "% left — plug in the charger"
+    }
 
     // ---------------------------------------------------------- notifications
     readonly property string notification: tr ? "Bildirim" : "Notification"

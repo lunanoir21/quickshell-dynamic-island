@@ -299,16 +299,17 @@ PanelWindow {
                             Layout.preferredWidth: 36
                             Layout.preferredHeight: 36
                             radius: 18
-                            color: closeHit.containsMouse ? settingsWin.host.themeChipHover
+                            color: closeHit.containsMouse ? settingsWin.host.themeStatusAlert
                                                           : settingsWin.host.themeChip
                             Behavior on color { ColorAnimation { duration: 140 } }
 
                             Text {
                                 anchors.centerIn: parent
                                 text: "󰅖"
-                                color: settingsWin.host.themeSubtext
+                                color: closeHit.containsMouse ? "#ffffff" : settingsWin.host.themeSubtext
                                 font.family: settingsWin.host.iconFont
                                 font.pixelSize: 15
+                                Behavior on color { ColorAnimation { duration: 140 } }
                             }
 
                             MouseArea {
