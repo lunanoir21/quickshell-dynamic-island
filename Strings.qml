@@ -31,6 +31,62 @@ QtObject {
     readonly property string appVolumeTitle: tr ? "Uygulama sesleri" : "App volume"
     readonly property string appVolumeEmpty: tr ? "Ses çalan uygulama yok" : "No app is playing audio"
 
+    // ----------------------------------------------------------- time tools
+    readonly property string timeTitle: tr ? "Zaman" : "Time"
+    // Mode names double as the rail chip labels and the stage eyebrow, so they
+    // stay short enough to read at 8px in a 150px-wide chip.
+    readonly property string tmTimer: tr ? "ZAMANLAYICI" : "TIMER"
+    readonly property string tmStopwatch: tr ? "KRONOMETRE" : "STOPWATCH"
+    readonly property string tmFocus: tr ? "ODAK" : "FOCUS"
+    readonly property string tmAlarm: tr ? "ALARM" : "ALARM"
+
+    // Actions are named for what happens when they are used, and keep the same
+    // word everywhere they appear — the button that says "Duraklat" is the one
+    // that produced the paused state the label above it reports.
+    readonly property string tmStart: tr ? "Başlat" : "Start"
+    readonly property string tmPause: tr ? "Duraklat" : "Pause"
+    readonly property string tmResume: tr ? "Sürdür" : "Resume"
+    readonly property string tmLap: tr ? "Tur" : "Lap"
+    readonly property string tmSkip: tr ? "Atla" : "Skip"
+    readonly property string tmArm: tr ? "Kur" : "Set"
+    readonly property string tmDisarm: tr ? "Kapat" : "Turn off"
+
+    readonly property string tmPhaseFocus: tr ? "ODAK" : "FOCUS"
+    readonly property string tmPhaseBreak: tr ? "MOLA" : "BREAK"
+    readonly property string tmRunning: tr ? "Çalışıyor" : "Running"
+    readonly property string tmPaused: tr ? "Duraklatıldı" : "Paused"
+    readonly property string tmReady: tr ? "Hazır" : "Ready"
+    readonly property string tmAlarmArmed: tr ? "Alarm kurulu" : "Alarm set"
+    readonly property string tmAlarmOff: tr ? "Alarm kapalı" : "Alarm off"
+    readonly property string tmLapsEmpty: tr ? "Henüz tur yok" : "No laps yet"
+    readonly property string tmCycles: tr ? "Tamamlanan" : "Completed"
+
+    // Completion cards. The title states what happened; the detail says which
+    // of the four tools it was, since the card can arrive long after the page
+    // that started it was closed.
+    readonly property string tmTimerDone: tr ? "Süre doldu" : "Time's up"
+    readonly property string tmFocusDone: tr ? "Odak tamamlandı" : "Focus complete"
+    readonly property string tmBreakDone: tr ? "Mola bitti" : "Break over"
+    readonly property string tmAlarmFired: tr ? "Alarm" : "Alarm"
+    function tmTimerDoneDetail(minutes) {
+        return tr ? (minutes + " dakikalık zamanlayıcı bitti")
+                  : (minutes + " minute timer finished")
+    }
+    readonly property string tmFocusDoneDetail: tr ? "5 dakika mola vakti" : "Take a 5 minute break"
+    readonly property string tmBreakDoneDetail: tr ? "Odağa geri dön" : "Back to focus"
+    function tmAlarmFiredDetail(clock) {
+        return tr ? (clock + " alarmı çaldı") : (clock + " alarm")
+    }
+    readonly property string tmDismiss: tr ? "Kapat" : "Dismiss"
+
+    // -------------------------------------------------------- quick settings
+    readonly property string quickSettingsTitle: tr ? "Hızlı ayarlar" : "Quick settings"
+    readonly property string qsDnd: tr ? "Rahatsız Etme" : "Do Not Disturb"
+    readonly property string qsBluetooth: tr ? "Bluetooth" : "Bluetooth"
+    readonly property string qsWifi: tr ? "Wi-Fi" : "Wi-Fi"
+    readonly property string qsLock: tr ? "Kilitle" : "Lock"
+    readonly property string qsLogout: tr ? "Oturumu Kapat" : "Log Out"
+
     // ----------------------------------------------------------------- queue
     readonly property string queueTitle: tr ? "Sırada" : "Up next"
     // Marks the panel itself, not just the settings row: the feature depends on

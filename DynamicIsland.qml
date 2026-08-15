@@ -24,7 +24,7 @@ PanelWindow {
     property bool lockedOpen: false
     property bool notificationVisible: false
     property bool deviceEventVisible: false
-    readonly property bool alertVisible: notificationVisible || deviceEventVisible || callVisible
+    readonly property bool alertVisible: notificationVisible || deviceEventVisible || callVisible || timeAlertVisible
     // The big settings window covers the whole screen while open, so the
     // island underneath has no business popping open just because the
     // pointer happens to pass over its (now inert) spot on the way there.
@@ -457,7 +457,8 @@ PanelWindow {
             appVolumeEnabled: window.appVolumeEnabled,
             queueEnabled: window.queueEnabled,
             playerSwitcherStyle: window.playerSwitcherStyle,
-            queueStyle: window.queueStyle
+            queueStyle: window.queueStyle,
+            timeChimeEnabled: window.timeChimeEnabled
         }, null, 2) + "\n")
     }
 
@@ -515,6 +516,7 @@ PanelWindow {
                 ["chips", "logos", "segment"], window.playerSwitcherStyle)
             window.queueStyle = readChoice(p, "queueStyle",
                 ["list", "covers", "timeline"], window.queueStyle)
+            window.timeChimeEnabled = readBool(p, "timeChimeEnabled", window.timeChimeEnabled)
         } catch (error) { /* missing or corrupt on first run — defaults stand */ }
     }
 
@@ -564,11 +566,34 @@ PanelWindow {
     }
 
     NumberAnimation on visualPhase {
+        // The mic card's own waveform and breathing ring used to wait on
+        // islandState.micActive specifically — a value that only updates on
+        // the next backend poll (up to ~2s away), so the card could appear
+        // with its bars frozen for a moment even during real mic use, and
+        // stay frozen the whole time under the `deviceEvent microphone`
+        // test IPC (which doesn't touch islandState at all). Driving it off
+        // "the mic card is on screen" instead means the animation always
+        // matches what the card is claiming, with no separate poll to wait on.
         running: window.mediaStatus === "Playing" || window.islandState.micActive || window.callRinging || window.callAnswering
+            || (window.deviceEventVisible && (window.deviceEventType === "battery" || window.deviceEventType === "microphone"))
+            // The completion card breathes for as long as it is up, and the
+            // final ten seconds of a countdown pulse on the same shared sine.
+            || window.timeAlertVisible || window.timeUrgent || window.timeCapsuleUrgent
         loops: Animation.Infinite
         from: 0; to: Math.PI * 2
         duration: 1100
         onRunningChanged: if (!running) window.visualPhase = 0
+    }
+
+    // Slow breathing glow for the battery glyph while charging — rests at 0
+    // (fully lit, no glow) so stopping it never leaves the icon mid-fade.
+    property real batteryPulse: 0
+    SequentialAnimation on batteryPulse {
+        running: window.batteryCharging && !window.fullscreenActive
+        loops: Animation.Infinite
+        onRunningChanged: if (!running) window.batteryPulse = 0
+        NumberAnimation { from: 0; to: 1; duration: 900; easing.type: Easing.InOutSine }
+        NumberAnimation { from: 1; to: 0; duration: 900; easing.type: Easing.InOutSine }
     }
 
     // ----------------------------------------------------------------- media
@@ -667,6 +692,64 @@ PanelWindow {
     // the very control the user is going for.
     property bool showAppVolumes: false
     property bool showQueue: false
+    // Kept as an internal compatibility flag for old settings/runtime state.
+    // There is deliberately no UI or navigation path to quick settings now.
+    property bool showQuickSettings: false
+    property bool showCalendarPage: false
+    property bool showTimePage: false
+    property int calendarMonthOffset: 0
+
+    // ------------------------------------------------------------ time tools
+    // One instrument that changes what it is, rather than four widgets sharing
+    // the stage: at 780px wide, three columns gave every tool ~230px and none
+    // of them enough. The rail underneath keeps the other three visible with
+    // their live values, so promoting one to the stage hides nothing.
+    property string timeMode: "timer"
+    readonly property var timeModes: ["timer", "stopwatch", "focus", "alarm"]
+
+    property int countdownDuration: 300
+    property int countdownSeconds: countdownDuration
+    property bool countdownRunning: false
+
+    // Elapsed-time based rather than an accumulating counter: the stopwatch is
+    // the one tool here that shows hundredths, where the drift of a repeating
+    // timer would be visible within a minute. The countdowns keep their simple
+    // per-second decrement — a second of drift over 25 minutes is not legible,
+    // and the deadline maths is not worth the extra pause/resume states.
+    property bool stopwatchRunning: false
+    property double stopwatchBase: 0
+    property double stopwatchStart: 0
+    property int stopwatchMs: 0
+    property var stopwatchLaps: []
+
+    property bool pomodoroWorkPhase: true
+    property int pomodoroSeconds: 1500
+    property bool pomodoroRunning: false
+    property int pomodoroCycles: 0
+
+    property int alarmHour: (new Date()).getHours()
+    property int alarmMinute: ((new Date()).getMinutes() + 5) % 60
+    property bool alarmEnabled: false
+    property string lastAlarmKey: ""
+
+    // The completion card. Kept separate from notificationVisible so a finished
+    // timer is never swallowed by Do Not Disturb — the user started this one
+    // themselves, which is exactly the thing DND is not meant to hide.
+    // Persisted, unlike the rest of the time state: a sound that plays when
+    // nobody asked for one is the kind of thing that has to stay off once it
+    // has been turned off.
+    property bool timeChimeEnabled: true
+    property bool timeAlertVisible: false
+    property bool timeAlertArmed: false
+    property string timeAlertKind: ""
+    property string timeAlertTitle: ""
+    property string timeAlertDetail: ""
+    property string timeAlertIcon: ""
+    // Runtime-only: suppresses new notification cards while on, the same
+    // way Android's Do Not Disturb does. Calls and device-privacy cards
+    // still get through — those are not "notifications" to silence, they
+    // are the two things DND is least meant to hide.
+    property bool dndActive: false
     readonly property var appStreams: islandState.apps || []
     readonly property var mediaQueue: islandState.queue || ({ supported: false, tracks: [] })
 
@@ -692,14 +775,346 @@ PanelWindow {
 
     onShowQueueChanged: if (showQueue) {
         showAppVolumes = false
+        showCalendarPage = false
+        showTimePage = false
         delayedRefresh.restart()
     }
 
     onShowAppVolumesChanged: if (showAppVolumes) {
         showQueue = false
+        showCalendarPage = false
+        showTimePage = false
         // The list is only collected while a panel is open, so the first frame
         // would otherwise be empty for up to a full poll interval.
         delayedRefresh.restart()
+    }
+
+    onShowCalendarPageChanged: if (showCalendarPage) {
+        showAppVolumes = false
+        showQueue = false
+        showTimePage = false
+        showQuickSettings = false
+    }
+
+    onShowTimePageChanged: if (showTimePage) {
+        showAppVolumes = false
+        showQueue = false
+        showCalendarPage = false
+        showQuickSettings = false
+    }
+
+    function pageNext() {
+        window.lockedOpen = true
+        if (window.showCalendarPage) window.showCalendarPage = false
+        else window.showTimePage = true
+    }
+    function pagePrev() {
+        window.lockedOpen = true
+        if (window.showTimePage) window.showTimePage = false
+        else window.showCalendarPage = true
+    }
+
+    function twoDigits(value) { return String(Math.max(0, value)).padStart(2, "0") }
+    function clockDuration(seconds) {
+        const safe = Math.max(0, Number(seconds) || 0)
+        return window.twoDigits(Math.floor(safe / 60)) + ":" + window.twoDigits(Math.floor(safe % 60))
+    }
+    // Hundredths rather than milliseconds: three digits of subsecond change too
+    // fast to read, and the pixel matrix would just look like noise.
+    function stopwatchLabel(ms) {
+        const safe = Math.max(0, Number(ms) || 0)
+        const totalSeconds = Math.floor(safe / 1000)
+        return window.twoDigits(Math.floor(totalSeconds / 60)) + ":"
+             + window.twoDigits(totalSeconds % 60) + "."
+             + window.twoDigits(Math.floor((safe % 1000) / 10))
+    }
+
+    // --- what the hero shows, per mode -------------------------------------
+    readonly property string timeReadout: {
+        if (timeMode === "stopwatch") return stopwatchLabel(stopwatchMs)
+        if (timeMode === "focus") return clockDuration(pomodoroSeconds)
+        if (timeMode === "alarm") return twoDigits(alarmHour) + ":" + twoDigits(alarmMinute)
+        return clockDuration(countdownSeconds)
+    }
+    readonly property bool timeModeRunning: {
+        if (timeMode === "stopwatch") return stopwatchRunning
+        if (timeMode === "focus") return pomodoroRunning
+        if (timeMode === "alarm") return alarmEnabled
+        return countdownRunning
+    }
+    // 0..1 of the way through. The stopwatch counts up with no end, so it fills
+    // across its current minute rather than faking a total it does not have,
+    // and the alarm fills across the hours still to wait.
+    readonly property real timeProgress: {
+        if (timeMode === "stopwatch") return (stopwatchMs % 60000) / 60000
+        if (timeMode === "focus") {
+            const total = pomodoroWorkPhase ? 1500 : 300
+            return 1 - Math.max(0, Math.min(1, pomodoroSeconds / total))
+        }
+        if (timeMode === "alarm") {
+            const now = currentTime.getHours() * 60 + currentTime.getMinutes()
+            const target = alarmHour * 60 + alarmMinute
+            const away = (target - now + 1440) % 1440
+            return 1 - (away / 1440)
+        }
+        if (countdownDuration <= 0) return 0
+        return 1 - Math.max(0, Math.min(1, countdownSeconds / countdownDuration))
+    }
+    // The last ten seconds are a real state change — about to fire — so they
+    // get the warn hue. Nothing else on this page is allowed colour.
+    readonly property bool timeUrgent: {
+        if (timeMode === "timer") return countdownRunning && countdownSeconds <= 10 && countdownSeconds > 0
+        if (timeMode === "focus") return pomodoroRunning && pomodoroSeconds <= 10 && pomodoroSeconds > 0
+        return false
+    }
+    readonly property color timeAccent: timeAlertVisible
+        ? themeStatusAlert
+        : (timeUrgent ? themeStatusWarn : (timeModeRunning ? themeStatusLive : themeMuted))
+
+    function timeModeLabel(mode) {
+        if (mode === "stopwatch") return i18n.tmStopwatch
+        if (mode === "focus") return i18n.tmFocus
+        if (mode === "alarm") return i18n.tmAlarm
+        return i18n.tmTimer
+    }
+    function timeModeIcon(mode) {
+        if (mode === "stopwatch") return "󰔛"
+        if (mode === "focus") return "󰔟"
+        if (mode === "alarm") return "󰀠"
+        return "󰥔"
+    }
+    // The value each rail chip reports while another mode owns the stage. This
+    // is the whole reason the rail exists, so it shows the live number, not the
+    // mode's configured one.
+    function timeModeValue(mode) {
+        if (mode === "stopwatch") return stopwatchLabel(stopwatchMs)
+        if (mode === "focus") return clockDuration(pomodoroSeconds)
+        if (mode === "alarm") return twoDigits(alarmHour) + ":" + twoDigits(alarmMinute)
+        return clockDuration(countdownSeconds)
+    }
+    function timeModeIsRunning(mode) {
+        if (mode === "stopwatch") return stopwatchRunning
+        if (mode === "focus") return pomodoroRunning
+        if (mode === "alarm") return alarmEnabled
+        return countdownRunning
+    }
+
+    // --- collapsed-pill capsule --------------------------------------------
+    // A tool left counting is invisible the moment the island closes, which is
+    // most of the time. The capsule is the only thing on the pill that reports
+    // state the user set up themselves rather than state the machine happens to
+    // be in, so it earns the space whenever something is actually running.
+    readonly property int alarmSecondsAway: {
+        const now = currentTime.getHours() * 3600 + currentTime.getMinutes() * 60 + currentTime.getSeconds()
+        let away = (alarmHour * 3600 + alarmMinute * 60) - now
+        if (away < 0) away += 86400
+        return away
+    }
+    // Ten minutes out is where an alarm stops being a setting and starts being
+    // something you plan the next few minutes around.
+    readonly property bool alarmImminent: alarmEnabled && alarmSecondsAway <= 600
+
+    readonly property string timeCapsuleMode: {
+        // Whatever is about to fire outranks whatever merely started first.
+        if (countdownRunning && countdownSeconds <= 10) return "timer"
+        if (pomodoroRunning && pomodoroSeconds <= 10) return "focus"
+        if (alarmEnabled && alarmSecondsAway <= 60) return "alarm"
+        if (countdownRunning) return "timer"
+        if (pomodoroRunning) return "focus"
+        if (stopwatchRunning) return "stopwatch"
+        if (alarmImminent) return "alarm"
+        return ""
+    }
+    readonly property bool timeCapsuleVisible: timeCapsuleMode !== ""
+    readonly property bool timeCapsuleUrgent: {
+        if (timeCapsuleMode === "timer") return countdownSeconds <= 10
+        if (timeCapsuleMode === "focus") return pomodoroSeconds <= 10
+        if (timeCapsuleMode === "alarm") return alarmSecondsAway <= 60
+        return false
+    }
+    // Hundredths are unreadable at pill scale and would rewrite the pill width
+    // every 10ms, so the stopwatch shows plain mm:ss here.
+    readonly property string timeCapsuleValue: {
+        if (timeCapsuleMode === "stopwatch") return clockDuration(Math.floor(stopwatchMs / 1000))
+        if (timeCapsuleMode === "focus") return clockDuration(pomodoroSeconds)
+        if (timeCapsuleMode === "alarm") return clockDuration(alarmSecondsAway)
+        return clockDuration(countdownSeconds)
+    }
+    readonly property real timeCapsuleProgress: {
+        if (timeCapsuleMode === "stopwatch") return (stopwatchMs % 60000) / 60000
+        if (timeCapsuleMode === "focus") {
+            const total = pomodoroWorkPhase ? 1500 : 300
+            return 1 - Math.max(0, Math.min(1, pomodoroSeconds / total))
+        }
+        if (timeCapsuleMode === "alarm") return 1 - Math.max(0, Math.min(1, alarmSecondsAway / 600))
+        if (countdownDuration <= 0) return 0
+        return 1 - Math.max(0, Math.min(1, countdownSeconds / countdownDuration))
+    }
+    readonly property color timeCapsuleColor: timeCapsuleUrgent ? themeStatusWarn : themeStatusLive
+
+    // --- controls ----------------------------------------------------------
+    function resetCountdown(minutes) {
+        window.countdownRunning = false
+        window.countdownDuration = Math.max(60, minutes * 60)
+        window.countdownSeconds = window.countdownDuration
+    }
+
+    function resetPomodoro() {
+        window.pomodoroRunning = false
+        window.pomodoroSeconds = window.pomodoroWorkPhase ? 1500 : 300
+    }
+
+    function toggleStopwatch() {
+        if (window.stopwatchRunning) {
+            window.stopwatchBase = window.stopwatchMs
+            window.stopwatchRunning = false
+        } else {
+            window.stopwatchStart = Date.now()
+            window.stopwatchRunning = true
+        }
+    }
+    function resetStopwatch() {
+        window.stopwatchRunning = false
+        window.stopwatchBase = 0
+        window.stopwatchMs = 0
+        window.stopwatchLaps = []
+    }
+    function recordLap() {
+        if (window.stopwatchMs <= 0) return
+        // Newest first, and only the last four are kept: the strip has room for
+        // four and a scrolling lap list on a 324px surface would be unreadable.
+        let laps = [window.stopwatchMs].concat(window.stopwatchLaps)
+        window.stopwatchLaps = laps.slice(0, 4)
+    }
+
+    // Advancing the focus phase is the same operation whether the timer ran out
+    // or the user skipped, so both paths go through here and the cycle counter
+    // can never disagree with the phase.
+    function advanceFocusPhase(completed) {
+        if (window.pomodoroWorkPhase && completed) window.pomodoroCycles++
+        window.pomodoroWorkPhase = !window.pomodoroWorkPhase
+        window.pomodoroSeconds = window.pomodoroWorkPhase ? 1500 : 300
+    }
+
+    // One primary button across all four modes, so the control the hand goes to
+    // never moves when the stage changes what it is.
+    function timePrimaryAction() {
+        if (window.timeMode === "stopwatch") { window.toggleStopwatch(); return }
+        if (window.timeMode === "focus") { window.pomodoroRunning = !window.pomodoroRunning; return }
+        if (window.timeMode === "alarm") {
+            window.alarmEnabled = !window.alarmEnabled
+            // Clearing the fired-key on every arm means re-arming for a time
+            // that already passed today still fires, instead of being silently
+            // swallowed as "already done".
+            window.lastAlarmKey = ""
+            return
+        }
+        if (window.countdownSeconds <= 0) window.countdownSeconds = window.countdownDuration
+        window.countdownRunning = !window.countdownRunning
+    }
+
+    function timeResetAction() {
+        if (window.timeMode === "stopwatch") { window.resetStopwatch(); return }
+        if (window.timeMode === "focus") { window.resetPomodoro(); return }
+        if (window.timeMode === "alarm") {
+            window.alarmEnabled = false
+            return
+        }
+        window.resetCountdown(window.countdownDuration / 60)
+    }
+
+    // "Start" only when there is nothing to come back to; a part-spent timer
+    // says "Resume", because that is the promise the button is making.
+    readonly property bool timeModeMidRun: {
+        if (timeMode === "stopwatch") return !stopwatchRunning && stopwatchMs > 0
+        if (timeMode === "focus") return !pomodoroRunning && pomodoroSeconds < (pomodoroWorkPhase ? 1500 : 300)
+        if (timeMode === "alarm") return false
+        return !countdownRunning && countdownSeconds > 0 && countdownSeconds < countdownDuration
+    }
+    readonly property string timePrimaryLabel: {
+        if (timeMode === "alarm") return alarmEnabled ? i18n.tmDisarm : i18n.tmArm
+        if (timeModeRunning) return i18n.tmPause
+        return timeModeMidRun ? i18n.tmResume : i18n.tmStart
+    }
+    readonly property string timeStatusLabel: {
+        if (timeMode === "alarm") return alarmEnabled ? i18n.tmAlarmArmed : i18n.tmAlarmOff
+        if (timeModeRunning) return i18n.tmRunning
+        return timeModeMidRun ? i18n.tmPaused : i18n.tmReady
+    }
+
+    // --- completion card ---------------------------------------------------
+    // The island is hidden outright under a fullscreen window, so a card raised
+    // there would fire into nothing. That is the one case that still falls back
+    // to the notification daemon, which can draw over fullscreen.
+    function raiseTimeAlert(kind, icon, title, detail) {
+        // The chime plays either way. Under a fullscreen window the card can't
+        // be drawn at all, which is exactly when being audible matters most.
+        if (window.timeChimeEnabled) window.run(["chime"])
+        if (window.fullscreenActive) {
+            window.runDirect(["notify-send", "-u", "critical", title, detail])
+            return
+        }
+        window.timeAlertKind = kind
+        window.timeAlertIcon = icon
+        window.timeAlertTitle = title
+        window.timeAlertDetail = detail
+        window.notificationVisible = false
+        window.deviceEventVisible = false
+        window.timeAlertVisible = true
+        // The card arrives under wherever the pointer already is, and the
+        // island shrinking to alert size hands that pointer straight to the
+        // card's own dismiss target — which used to swallow the alert within a
+        // frame of it appearing, before it could be read. Pointer dismissal is
+        // held off until the entrance has actually played.
+        window.timeAlertArmed = false
+        timeAlertArming.restart()
+        timeAlertTimeout.restart()
+        timeAlertPop.restart()
+    }
+
+    // Keyboard dismissal deliberately ignores this: a keypress cannot arrive by
+    // accident of where the pointer was resting.
+    function dismissTimeAlertByPointer() {
+        if (!window.timeAlertArmed) return
+        window.dismissTimeAlert()
+    }
+
+    function dismissTimeAlert() {
+        window.timeAlertVisible = false
+        window.timeAlertArmed = false
+        timeAlertArming.stop()
+        timeAlertTimeout.stop()
+    }
+
+    function calendarMonthName(month) {
+        const tr = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+        const en = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+        return (window.lang === "tr" ? tr : en)[month]
+    }
+
+    function calendarWeekdayName(day) {
+        const tr = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"]
+        const en = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        return (window.lang === "tr" ? tr : en)[day]
+    }
+
+    readonly property var calendarMonthDate: new Date(currentTime.getFullYear(), currentTime.getMonth() + calendarMonthOffset, 1)
+
+    function calendarCellDate(index) {
+        const first = window.calendarMonthDate
+        const mondayOffset = (first.getDay() + 6) % 7
+        return new Date(first.getFullYear(), first.getMonth(), index - mondayOffset + 1)
+    }
+
+    function calendarIsToday(value) {
+        return value.getFullYear() === currentTime.getFullYear()
+            && value.getMonth() === currentTime.getMonth()
+            && value.getDate() === currentTime.getDate()
+    }
+
+    function calendarIsCurrentMonth(value) {
+        return value.getFullYear() === calendarMonthDate.getFullYear()
+            && value.getMonth() === calendarMonthDate.getMonth()
     }
 
     function setAppVolume(entry, value) {
@@ -925,6 +1340,9 @@ PanelWindow {
         showClock = false
         showAppVolumes = false
         showQueue = false
+        showQuickSettings = false
+        showCalendarPage = false
+        showTimePage = false
     }
 
     onHoverToOpenChanged: if (!hoverToOpen) {
@@ -945,6 +1363,13 @@ PanelWindow {
         hovering = false
         notificationVisible = false
         deviceEventVisible = false
+        deviceEventQueue = []
+        // Deliberately not dismissed here. Collapsing the island is a
+        // statement about the island, not an acknowledgement of a timer that
+        // finished while nobody was watching — and this path also runs on an
+        // incidental click-away, which used to swallow the card seconds after
+        // it appeared. It stays up until it is actually answered, or until its
+        // own timeout runs out.
         setInteracting(false)
     }
 
@@ -959,7 +1384,78 @@ PanelWindow {
         running: true
         repeat: true
         triggeredOnStart: true
-        onTriggered: window.currentTime = new Date()
+        onTriggered: {
+            window.currentTime = new Date()
+            const alarmKey = window.currentTime.getFullYear() + "-" + window.currentTime.getMonth()
+                + "-" + window.currentTime.getDate() + "-" + window.alarmHour + "-" + window.alarmMinute
+            if (window.alarmEnabled && window.currentTime.getSeconds() === 0
+                    && window.currentTime.getHours() === window.alarmHour
+                    && window.currentTime.getMinutes() === window.alarmMinute
+                    && window.lastAlarmKey !== alarmKey) {
+                window.lastAlarmKey = alarmKey
+                window.raiseTimeAlert("alarm", "󰀠", i18n.tmAlarmFired,
+                    i18n.tmAlarmFiredDetail(window.twoDigits(window.alarmHour) + ":" + window.twoDigits(window.alarmMinute)))
+            }
+        }
+    }
+
+    Timer {
+        interval: 1000
+        repeat: true
+        running: window.countdownRunning
+        onTriggered: {
+            if (window.countdownSeconds > 1) window.countdownSeconds--
+            else {
+                window.countdownSeconds = 0
+                window.countdownRunning = false
+                window.raiseTimeAlert("timer", "󰥔", i18n.tmTimerDone,
+                    i18n.tmTimerDoneDetail(Math.round(window.countdownDuration / 60)))
+            }
+        }
+    }
+
+    Timer {
+        interval: 1000
+        repeat: true
+        running: window.pomodoroRunning
+        onTriggered: {
+            if (window.pomodoroSeconds > 1) window.pomodoroSeconds--
+            else {
+                // Read the phase that just ended before advancing, or the card
+                // would announce the phase the user is about to start.
+                const finishedWork = window.pomodoroWorkPhase
+                window.advanceFocusPhase(true)
+                window.raiseTimeAlert("focus", "󰔟",
+                    finishedWork ? i18n.tmFocusDone : i18n.tmBreakDone,
+                    finishedWork ? i18n.tmFocusDoneDetail : i18n.tmBreakDoneDetail)
+            }
+        }
+    }
+
+    // 50ms: fast enough that the hundredths column never visibly skips a value,
+    // slow enough to stay off the per-frame path.
+    Timer {
+        interval: 50
+        repeat: true
+        running: window.stopwatchRunning
+        onTriggered: window.stopwatchMs = window.stopwatchBase + (Date.now() - window.stopwatchStart)
+    }
+
+    // Long by alert standards, because the whole point of a timer is that it
+    // finishes while you are looking somewhere else. Still bounded, so a card
+    // nobody came back for cannot wedge the island open indefinitely.
+    Timer {
+        id: timeAlertTimeout
+        interval: 60000
+        onTriggered: window.dismissTimeAlert()
+    }
+
+    // Just longer than the entrance animation, so the card is fully formed
+    // before it will answer to a click.
+    Timer {
+        id: timeAlertArming
+        interval: 620
+        onTriggered: window.timeAlertArmed = true
     }
 
     function run(args) {
@@ -1004,6 +1500,7 @@ PanelWindow {
 
     function showNotification(app, title, body, icon, uid, hasReply, replyPlaceholder) {
         if (window.callVisible) return
+        if (window.dndActive) return
         notificationApp = app
         notificationIcon = resolveAppIcon(app, icon)
         notificationTitle = title
@@ -1142,6 +1639,61 @@ PanelWindow {
         function appVolumes(): void { window.showAppVolumes = !window.showAppVolumes }
         function queue(): void { window.showQueue = !window.showQueue }
 
+        function calendar(): void {
+            window.lockedOpen = true
+            window.showCalendarPage = !window.showCalendarPage
+        }
+        function timeTools(): void {
+            window.lockedOpen = true
+            window.showTimePage = !window.showTimePage
+        }
+        function pageNext(): void { window.pageNext() }
+        function pagePrev(): void { window.pagePrev() }
+
+        function dnd(): void { window.dndActive = !window.dndActive }
+
+        // Time tools. `timeMode` jumps straight to one instrument so a keybind
+        // can land on the stopwatch rather than wherever the page was left.
+        function timeMode(name: string): void {
+            if (window.timeModes.indexOf(name) === -1) return
+            window.lockedOpen = true
+            window.showTimePage = true
+            window.timeMode = name
+        }
+        // Fires the completion card without waiting out a real countdown, so
+        // the arrival animation and every dismissal path stay testable.
+        function timerTest(): void {
+            window.raiseTimeAlert("timer", "󰥔", i18n.tmTimerDone, i18n.tmTimerDoneDetail(5))
+        }
+        function timerDismiss(): void { window.dismissTimeAlert() }
+        // Start/pause and reset the mode currently on the stage, so a keybind
+        // can drive the timer without opening the island at all.
+        function timeToggle(): void { window.timePrimaryAction() }
+        function timeReset(): void { window.timeResetAction() }
+        function bluetoothToggle(): void { window.run(["bluetooth-toggle"]) }
+        function wifiToggle(): void { window.run(["wifi-toggle"]) }
+        function lockScreen(): void { window.runDirect(["bash", "-c", "~/.config/hypr/scripts/lock.sh"]) }
+        function logout(): void { window.runDirect(["hyprctl", "dispatch", "exit"]) }
+
+        // Stands in for the real battery reading for a few seconds — lets the
+        // level colour (green/yellow/red) and the charging pulse be exercised
+        // on demand instead of waiting for the hardware to actually be there.
+        // status is "Charging" or anything else (mirrors backend.sh's field).
+        function battery(level: int, status: string): void {
+            window.batteryOverride = {level: level, status: status}
+            batteryOverrideTimer.restart()
+        }
+        // Drops the override early instead of waiting out its ~8s expiry.
+        function batteryReset(): void {
+            window.batteryOverride = null
+            batteryOverrideTimer.stop()
+        }
+        // Fires the critical-battery card directly, independent of the real
+        // or overridden level — for testing the alert animation itself.
+        function batteryAlert(level: int): void {
+            window.showBatteryAlert(level)
+        }
+
         // Opens the settings window straight onto one section, so a keybind can
         // land on the thing it is about instead of wherever it was left last.
         function settingsSection(name: string): void {
@@ -1153,7 +1705,7 @@ PanelWindow {
             window.settingsOpen = !window.settingsOpen
             if (window.settingsOpen) window.closeIsland()
         }
-        // "black", "umbra", "gray", "white", or "cycle" — so a keybind can
+        // "black", "umbra", "gray", "white", "custom", or "cycle" — so a keybind can
         // step through the palettes without opening the settings window.
         function theme(name: string): void {
             if (name === "cycle") {
@@ -1386,15 +1938,22 @@ PanelWindow {
     // heuristic gets around to confirming it — waiting on that would leave
     // the big screen sitting there through the whole "Bağlanıyor…" gap.
     readonly property bool callBigView: callRinging && !callAnswering
+    // The completion card is checked before every other alert: it is the only
+    // one the user explicitly asked for by starting a timer, so nothing else
+    // arriving in the same tick gets to size the island out from under it.
     readonly property real targetWidth: expanded
-        ? Math.min(notificationVisible ? 500 : (deviceEventVisible ? 420 : (callVisible ? (callBigView ? 360 : 500) : 780)), window.width - 40)
+        ? Math.min(timeAlertVisible ? 470
+            : (notificationVisible ? 500 : (deviceEventVisible ? 420 : (callVisible ? (callBigView ? 360 : 500) : 780))), window.width - 40)
         : compactWidth
     // Mirrors replyRow's own visibility rather than notificationHasReply alone:
     // with inline reply switched off the field is gone, and the card must not
     // keep reserving the 42px it used to occupy.
     readonly property bool notificationReplyShown: notificationHasReply && notificationInlineReply
     readonly property real targetHeight: expanded
-        ? (notificationVisible ? (notificationReplyShown ? 168 : 124) : (deviceEventVisible ? 98 : (callVisible ? (callBigView ? 270 : 124) : 324)))
+        ? (timeAlertVisible ? 128
+            : (notificationVisible ? (notificationReplyShown ? 168 : 124)
+                : (deviceEventVisible ? 98
+                    : (callVisible ? (callBigView ? 270 : 124) : 324))))
         : 54
 
     Rectangle {
@@ -1414,6 +1973,16 @@ PanelWindow {
         // the surface holds the keyboard.
         focus: true
         Keys.onPressed: event => {
+            // A finished timer owns the keyboard while its card is up: any of
+            // the three keys a person actually reaches for to make an alert go
+            // away dismisses it, instead of pausing whatever music happened to
+            // be playing behind it.
+            if (window.timeAlertVisible
+                    && (event.key === Qt.Key_Escape || event.key === Qt.Key_Space || event.key === Qt.Key_Return)) {
+                window.dismissTimeAlert()
+                event.accepted = true
+                return
+            }
             switch (event.key) {
             case Qt.Key_Space:
             case Qt.Key_MediaTogglePlayPause:
@@ -1445,6 +2014,26 @@ PanelWindow {
         border.color: Qt.rgba(0.35, 0.86, 0.55, 0.4 + Math.abs(Math.sin(window.visualPhase)) * 0.35)
 
         color: window.themeIslandFill
+
+        PanelChip {
+            anchors.left: parent.left
+            anchors.leftMargin: 10
+            anchors.verticalCenter: parent.verticalCenter
+            z: 20
+            visible: window.expanded && !window.alertVisible && !window.showCalendarPage
+            icon: "󰅁"
+            onTriggered: window.pagePrev()
+        }
+
+        PanelChip {
+            anchors.right: parent.right
+            anchors.rightMargin: 10
+            anchors.verticalCenter: parent.verticalCenter
+            z: 20
+            visible: window.expanded && !window.alertVisible && !window.showTimePage
+            icon: "󰅂"
+            onTriggered: window.pageNext()
+        }
 
         // Same curve character both ways — only the duration differs, opening
         // a little slower than it closes — so the two directions read as one
@@ -1677,6 +2266,99 @@ PanelWindow {
                     gridColor: "transparent"
                     Layout.preferredWidth: implicitWidth
                     Layout.preferredHeight: implicitHeight
+                }
+
+                // ------------------------------------------- time capsule
+                Rectangle {
+                    id: timeCapsule
+                    visible: window.timeCapsuleVisible && !window.compactPlayerMode
+                    Layout.preferredWidth: visible ? capsuleRow.implicitWidth + 20 : 0
+                    Layout.preferredHeight: 28
+                    radius: 10
+                    clip: true
+
+                    color: Qt.rgba(window.timeCapsuleColor.r, window.timeCapsuleColor.g,
+                                   window.timeCapsuleColor.b, window.timeCapsuleUrgent ? 0.18 : 0.11)
+                    border.width: 1
+                    border.color: Qt.rgba(window.timeCapsuleColor.r, window.timeCapsuleColor.g,
+                                          window.timeCapsuleColor.b,
+                                          window.timeCapsuleUrgent
+                                            ? 0.45 + Math.abs(Math.sin(window.visualPhase)) * 0.55
+                                            : 0.35)
+                    Behavior on color { ColorAnimation { duration: 300 } }
+                    Behavior on Layout.preferredWidth {
+                        NumberAnimation { duration: 320; easing.type: Easing.OutQuint }
+                    }
+
+                    // The capsule's own light, travelling left to right. Slow
+                    // and faint while merely running; quick and bright once the
+                    // thing is about to fire, so the pill escalates on its own
+                    // without ever growing or moving.
+                    Rectangle {
+                        id: capsuleSweep
+                        y: 0
+                        width: 26
+                        height: parent.height
+                        rotation: 16
+                        color: window.timeCapsuleColor
+                        opacity: window.timeCapsuleUrgent ? 0.30 : 0.16
+                        x: -60
+                        NumberAnimation on x {
+                            running: timeCapsule.visible
+                            from: -60
+                            to: timeCapsule.width + 60
+                            duration: window.timeCapsuleUrgent ? 900 : 2100
+                            loops: Animation.Infinite
+                            easing.type: Easing.InOutCubic
+                            onRunningChanged: if (!running) capsuleSweep.x = -60
+                        }
+                    }
+
+                    Row {
+                        id: capsuleRow
+                        anchors.centerIn: parent
+                        anchors.verticalCenterOffset: -1
+                        spacing: 6
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: window.timeModeIcon(window.timeCapsuleMode)
+                            color: window.timeCapsuleColor
+                            font.family: window.iconFont
+                            font.pixelSize: 12
+                            Behavior on color { ColorAnimation { duration: 300 } }
+                        }
+
+                        // Same matrix as the compact clock beside it, so the
+                        // capsule reads as another readout on the same display
+                        // rather than a badge stuck onto the pill.
+                        PixelText {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: window.timeCapsuleValue
+                            cell: 2
+                            gap: 1
+                            color: window.timeCapsuleUrgent ? window.timeCapsuleColor : window.themeText
+                            offColor: Qt.rgba(window.themeText.r, window.themeText.g, window.themeText.b, 0.09)
+                            animated: true
+                            rollDuration: 260
+                            Behavior on color { ColorAnimation { duration: 300 } }
+                        }
+                    }
+
+                    // Drain line along the bottom edge: the one part of the
+                    // capsule carrying a quantity rather than a state.
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left
+                        anchors.bottomMargin: 3
+                        anchors.leftMargin: 6
+                        width: Math.max(0, (parent.width - 12) * window.timeCapsuleProgress)
+                        height: 2
+                        radius: 1
+                        color: window.timeCapsuleColor
+                        opacity: 0.85
+                        Behavior on width { NumberAnimation { duration: 420; easing.type: Easing.OutCubic } }
+                    }
                 }
 
                 Rectangle {
@@ -2914,83 +3596,1110 @@ PanelWindow {
                 }
             }
 
+            // ------------------------------------------ right: time instruments
+            // One instrument, four modes. The readout never leaves the stage —
+            // only the controls under it change — so switching modes reads as
+            // the same display retuning rather than four separate screens.
+            Item {
+                id: timeToolsPage
+                anchors.fill: parent
+                z: 7
+                visible: opacity > 0.01
+                opacity: window.showTimePage ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
+
+                transform: Translate {
+                    x: window.showTimePage ? 0 : 28
+                    Behavior on x { NumberAnimation { duration: 330; easing.type: Easing.OutQuint } }
+                }
+
+                // Opaque, unlike the island's own glass fill: this page is a
+                // sibling of the media panel rather than a layer above the
+                // whole window, so any translucency here shows the album art
+                // and meters straight through the readout.
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 30
+                    color: Qt.rgba(window.themeIslandFill.r,
+                                   window.themeIslandFill.g,
+                                   window.themeIslandFill.b, 1)
+                }
+                MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons }
+
+                ColumnLayout {
+                    anchors {
+                        fill: parent
+                        leftMargin: 40
+                        rightMargin: 40
+                        topMargin: 18
+                        bottomMargin: 16
+                    }
+                    spacing: 10
+
+                    // ---------------------------------------------- header
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: false
+                        Layout.preferredHeight: 20
+                        Layout.maximumHeight: 20
+                        spacing: 10
+
+                        Text {
+                            text: i18n.timeTitle
+                            color: window.themeText
+                            font.family: window.uiFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 14
+                        }
+
+                        // Status reads as a pill only while something is live,
+                        // so a resting page carries no colour at all.
+                        Rectangle {
+                            Layout.preferredWidth: statusLabel.implicitWidth + 20
+                            Layout.preferredHeight: 18
+                            radius: 9
+                            color: window.timeModeRunning
+                                ? Qt.rgba(window.timeAccent.r, window.timeAccent.g, window.timeAccent.b, 0.16)
+                                : "transparent"
+                            border.width: 1
+                            border.color: window.timeModeRunning ? window.timeAccent : window.themeLine
+                            Behavior on color { ColorAnimation { duration: 240 } }
+                            Behavior on border.color { ColorAnimation { duration: 240 } }
+
+                            Text {
+                                id: statusLabel
+                                anchors.centerIn: parent
+                                text: window.timeStatusLabel
+                                color: window.timeModeRunning ? window.timeAccent : window.themeMuted
+                                font.family: window.uiFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 8
+                                font.letterSpacing: 0.9
+                                Behavior on color { ColorAnimation { duration: 240 } }
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Text {
+                            text: Qt.formatTime(window.currentTime, "HH:mm:ss")
+                            color: window.themeMuted
+                            font.family: window.uiFont
+                            font.weight: Font.DemiBold
+                            font.pixelSize: 11
+                            font.letterSpacing: 0.8
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 1
+                        color: window.themeLineStrong
+                    }
+
+                    // ----------------------------------------------- stage
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+
+                        Column {
+                            anchors.centerIn: parent
+                            width: parent.width
+                            spacing: 11
+
+                            // Mode name sits directly above its own readout,
+                            // so the number is never ambiguous about which
+                            // tool produced it.
+                            Row {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                spacing: 8
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: window.timeModeIcon(window.timeMode)
+                                    color: window.timeAccent
+                                    font.family: window.iconFont
+                                    font.pixelSize: 12
+                                    Behavior on color { ColorAnimation { duration: 240 } }
+                                }
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: window.timeMode === "focus"
+                                        ? (window.pomodoroWorkPhase ? i18n.tmPhaseFocus : i18n.tmPhaseBreak)
+                                        : window.timeModeLabel(window.timeMode)
+                                    color: window.themeMuted
+                                    font.family: window.uiFont
+                                    font.weight: Font.Bold
+                                    font.pixelSize: 8
+                                    font.letterSpacing: 1.6
+                                }
+                            }
+
+                            // The hero. Drawn in the same 5x7 matrix as the
+                            // island's clock, with the unlit cells left faintly
+                            // visible: the dormant grid is what makes a digit
+                            // changing read as a display, not a label.
+                            PixelText {
+                                id: heroReadout
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: window.timeReadout
+                                // The stopwatch carries three more glyphs than
+                                // the others, so it steps down a size rather
+                                // than letting the row run under the margins.
+                                cell: window.timeMode === "stopwatch" ? 6 : 8
+                                gap: 2
+                                color: window.timeAlertVisible || window.timeUrgent
+                                    ? window.timeAccent
+                                    : window.themeText
+                                offColor: Qt.rgba(window.themeText.r, window.themeText.g, window.themeText.b, 0.07)
+                                animated: true
+                                rollDuration: 300
+                                // Only the last ten seconds breathe. Everything
+                                // before that is a display, not a warning.
+                                opacity: window.timeUrgent
+                                    ? 0.62 + Math.abs(Math.sin(window.visualPhase)) * 0.38
+                                    : 1
+                                Behavior on color { ColorAnimation { duration: 260 } }
+                            }
+
+                            // Progress built from the same square cells as the
+                            // glyphs above it, so the readout and its progress
+                            // are one instrument instead of a number with a bar
+                            // parked underneath.
+                            Row {
+                                id: ledStrip
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                width: parent.width
+                                height: 12
+                                spacing: 3
+
+                                readonly property int cells: 44
+                                readonly property real cellWidth:
+                                    (width - spacing * (cells - 1)) / cells
+
+                                Repeater {
+                                    model: ledStrip.cells
+
+                                    Rectangle {
+                                        required property int index
+                                        readonly property bool lit:
+                                            (index + 1) / ledStrip.cells <= window.timeProgress
+
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: ledStrip.cellWidth
+                                        height: lit ? 12 : 5
+                                        radius: 1.5
+                                        color: lit ? window.timeAccent : window.themeTrack
+                                        opacity: lit ? 1 : 0.5
+
+                                        // Staggered by position so the strip
+                                        // fills and drains as a travelling
+                                        // ripple rather than snapping as a
+                                        // block. Cheap: colour only settles on
+                                        // the cells that actually crossed.
+                                        Behavior on color {
+                                            ColorAnimation {
+                                                duration: 240
+                                                easing.type: Easing.OutCubic
+                                            }
+                                        }
+                                        Behavior on height {
+                                            NumberAnimation {
+                                                duration: 260
+                                                easing.type: Easing.OutBack
+                                            }
+                                        }
+                                        Behavior on opacity {
+                                            NumberAnimation { duration: 240 }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ------------------------------------ controls
+                            // Every mode lands its primary action in the same
+                            // place; only the secondaries on the left change.
+                            Item {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                width: parent.width
+                                height: 34
+
+                                // -- timer: duration presets
+                                Row {
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 6
+                                    visible: opacity > 0.01
+                                    opacity: window.timeMode === "timer" ? 1 : 0
+                                    Behavior on opacity { NumberAnimation { duration: 200 } }
+
+                                    Repeater {
+                                        model: [1, 5, 10, 25]
+
+                                        TimeKey {
+                                            required property int modelData
+                                            width: 46
+                                            label: modelData + (window.lang === "tr" ? " dk" : " m")
+                                            active: window.countdownDuration === modelData * 60
+                                            onTriggered: window.resetCountdown(modelData)
+                                        }
+                                    }
+                                }
+
+                                // -- stopwatch: the last four laps, newest first
+                                Row {
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 6
+                                    visible: opacity > 0.01
+                                    opacity: window.timeMode === "stopwatch" ? 1 : 0
+                                    Behavior on opacity { NumberAnimation { duration: 200 } }
+
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: window.stopwatchLaps.length === 0
+                                        text: i18n.tmLapsEmpty
+                                        color: window.themeMuted
+                                        font.family: window.uiFont
+                                        font.pixelSize: 9
+                                    }
+
+                                    Repeater {
+                                        model: window.stopwatchLaps
+
+                                        Rectangle {
+                                            required property var modelData
+                                            required property int index
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 64
+                                            height: 26
+                                            radius: 8
+                                            color: window.themeChip
+                                            // Newest lap carries the full text
+                                            // colour; older ones recede, so the
+                                            // one just taken is findable without
+                                            // reading all four.
+                                            opacity: index === 0 ? 1 : 0.55
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: window.stopwatchLabel(modelData)
+                                                color: window.themeSubtext
+                                                font.family: window.uiFont
+                                                font.weight: Font.DemiBold
+                                                font.pixelSize: 9
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // -- focus: completed cycles
+                                Row {
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 7
+                                    visible: opacity > 0.01
+                                    opacity: window.timeMode === "focus" ? 1 : 0
+                                    Behavior on opacity { NumberAnimation { duration: 200 } }
+
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: i18n.tmCycles
+                                        color: window.themeMuted
+                                        font.family: window.uiFont
+                                        font.weight: Font.Bold
+                                        font.pixelSize: 8
+                                        font.letterSpacing: 1.1
+                                    }
+
+                                    // Four pips, one per pomodoro in the set.
+                                    Row {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 5
+
+                                        Repeater {
+                                            model: 4
+
+                                            Rectangle {
+                                                required property int index
+                                                width: 9
+                                                height: 9
+                                                radius: 4.5
+                                                color: index < (window.pomodoroCycles % 4 === 0
+                                                                && window.pomodoroCycles > 0
+                                                                ? 4 : window.pomodoroCycles % 4)
+                                                    ? window.themeStatusLive
+                                                    : window.themeTrack
+                                                Behavior on color { ColorAnimation { duration: 300 } }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // -- alarm: hour and minute steppers
+                                Row {
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 6
+                                    visible: opacity > 0.01
+                                    opacity: window.timeMode === "alarm" ? 1 : 0
+                                    Behavior on opacity { NumberAnimation { duration: 200 } }
+
+                                    Repeater {
+                                        model: [
+                                            { glyph: "󰁝", step: 60,  tag: "H" },
+                                            { glyph: "󰁅", step: -60, tag: "H" },
+                                            { glyph: "󰁝", step: 5,   tag: "M" },
+                                            { glyph: "󰁅", step: -5,  tag: "M" }
+                                        ]
+
+                                        TimeKey {
+                                            required property var modelData
+                                            width: 46
+                                            label: modelData.tag
+                                            glyph: modelData.glyph
+                                            onTriggered: {
+                                                let total = (window.alarmHour * 60
+                                                    + window.alarmMinute + modelData.step + 1440) % 1440
+                                                window.alarmHour = Math.floor(total / 60)
+                                                window.alarmMinute = total % 60
+                                                window.lastAlarmKey = ""
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // -- primary + utilities, fixed on the right
+                                Row {
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 7
+
+                                    TimeKey {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: window.timeMode === "stopwatch"
+                                        width: 34
+                                        glyph: "󰈻"
+                                        onTriggered: window.recordLap()
+                                    }
+
+                                    TimeKey {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: window.timeMode === "focus"
+                                        width: 34
+                                        glyph: "󰒭"
+                                        onTriggered: window.advanceFocusPhase(false)
+                                    }
+
+                                    Rectangle {
+                                        id: primaryAction
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 116
+                                        height: 34
+                                        radius: 12
+                                        color: primaryHit.containsMouse
+                                            ? Qt.lighter(window.themeOn, 1.08)
+                                            : window.themeOn
+                                        scale: primaryHit.pressed ? 0.96 : 1
+                                        Behavior on color { ColorAnimation { duration: 140 } }
+                                        Behavior on scale {
+                                            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+                                        }
+
+                                        Row {
+                                            anchors.centerIn: parent
+                                            spacing: 7
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: window.timeMode === "alarm"
+                                                    ? (window.alarmEnabled ? "󰂛" : "󰀠")
+                                                    : (window.timeModeRunning ? "󰏤" : "󰐊")
+                                                color: window.themeOnText
+                                                font.family: window.iconFont
+                                                font.pixelSize: 13
+                                            }
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: window.timePrimaryLabel
+                                                color: window.themeOnText
+                                                font.family: window.uiFont
+                                                font.weight: Font.Bold
+                                                font.pixelSize: 10
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: primaryHit
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: window.timePrimaryAction()
+                                        }
+                                    }
+
+                                    TimeKey {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 34
+                                        glyph: "󰑐"
+                                        onTriggered: window.timeResetAction()
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ------------------------------------------------ rail
+                    // The other three tools stay on screen with their live
+                    // values, so promoting one to the stage never hides what
+                    // is still counting.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        // Pinned rather than merely preferred: a RowLayout in a
+                        // ColumnLayout still stretches on preferredHeight alone,
+                        // which let the rail eat the stage.
+                        Layout.fillHeight: false
+                        Layout.preferredHeight: 44
+                        Layout.maximumHeight: 44
+                        spacing: 7
+
+                        Repeater {
+                            model: window.timeModes
+
+                            Rectangle {
+                                required property var modelData
+                                readonly property bool current: window.timeMode === modelData
+                                readonly property bool live: window.timeModeIsRunning(modelData)
+
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                radius: 13
+                                color: current ? window.themeOn
+                                    : (railHit.containsMouse ? window.themeChipHover : window.themeChip)
+                                border.width: 1
+                                border.color: current ? window.themeOn : window.themeLine
+                                Behavior on color { ColorAnimation { duration: 180 } }
+                                Behavior on border.color { ColorAnimation { duration: 180 } }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 11
+                                    anchors.rightMargin: 11
+                                    spacing: 8
+
+                                    Text {
+                                        text: window.timeModeIcon(modelData)
+                                        color: current ? window.themeOnText : window.themeSubtext
+                                        font.family: window.iconFont
+                                        font.pixelSize: 14
+                                        Behavior on color { ColorAnimation { duration: 180 } }
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 1
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: window.timeModeLabel(modelData)
+                                            elide: Text.ElideRight
+                                            color: current ? window.themeOnText : window.themeMuted
+                                            font.family: window.uiFont
+                                            font.weight: Font.Bold
+                                            font.pixelSize: 7
+                                            font.letterSpacing: 1
+                                            Behavior on color { ColorAnimation { duration: 180 } }
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: window.timeModeValue(modelData)
+                                            elide: Text.ElideRight
+                                            color: current ? window.themeOnText : window.themeSubtext
+                                            font.family: window.uiFont
+                                            font.weight: Font.DemiBold
+                                            font.pixelSize: 11
+                                            Behavior on color { ColorAnimation { duration: 180 } }
+                                        }
+                                    }
+
+                                    // Only drawn when that tool is actually
+                                    // counting — an always-present dot would
+                                    // stop meaning anything.
+                                    Rectangle {
+                                        Layout.alignment: Qt.AlignVCenter
+                                        width: 7
+                                        height: 7
+                                        radius: 3.5
+                                        visible: live
+                                        color: current ? window.themeOnText : window.themeStatusLive
+                                        opacity: 0.45 + Math.abs(Math.sin(window.visualPhase)) * 0.55
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: railHit
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: window.timeMode = modelData
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Legacy quick-controls implementation is intentionally unreachable.
+            // It remains inert here only to avoid destabilising unrelated shell
+            // code while the calendar replaces it completely in the interface.
+            // Built as a physical continuation under the 324px main island.
+            // The parent deliberately does not clip: the island itself clips the
+            // child against its animated height, producing a real downward
+            // reveal instead of a page swap or side-drawer illusion.
+            Item {
+                id: quickSettingsPanel
+                anchors {
+                    top: parent.bottom
+                    horizontalCenter: parent.horizontalCenter
+                    topMargin: 8
+                }
+                width: parent.width - 24
+                height: 230
+                z: 6
+                visible: false
+                opacity: 0
+                scale: window.showQuickSettings ? 1 : 0.965
+                transformOrigin: Item.Top
+
+                Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutQuint } }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 26
+                    color: window.themeSurface
+                    border.width: 1
+                    border.color: window.themeLineStrong
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.AllButtons
+                }
+
+                // The small bridge makes the lower sheet read as belonging to
+                // the island above, not as a second floating popup.
+                Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.top
+                    anchors.topMargin: 7
+                    width: 46
+                    height: 4
+                    radius: 2
+                    color: window.themeLineStrong
+                }
+
+                ColumnLayout {
+                    anchors {
+                        fill: parent
+                        topMargin: 16
+                        leftMargin: 16
+                        rightMargin: 16
+                        bottomMargin: 15
+                    }
+                    spacing: 10
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 28
+                        spacing: 10
+
+                        Rectangle {
+                            Layout.preferredWidth: 28
+                            Layout.preferredHeight: 28
+                            radius: 10
+                            color: window.themeOn
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "󰒔"
+                                color: window.themeOnText
+                                font.family: window.iconFont
+                                font.pixelSize: 14
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: i18n.quickSettingsTitle
+                            color: window.themeText
+                            font.family: window.uiFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 14
+                        }
+
+                        Rectangle {
+                            Layout.preferredWidth: 30
+                            Layout.preferredHeight: 30
+                            radius: 11
+                            color: quickCloseHit.containsMouse ? window.themeChipHover : window.themeChip
+                            Behavior on color { ColorAnimation { duration: 140 } }
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "󰅃"
+                                color: window.themeSubtext
+                                font.family: window.iconFont
+                                font.pixelSize: 14
+                            }
+                            MouseArea {
+                                id: quickCloseHit
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: window.showQuickSettings = false
+                            }
+                        }
+                    }
+
+                    component QuickControlSlider: Rectangle {
+                        id: controlCard
+                        property string controlIcon: ""
+                        property string controlLabel: ""
+                        property real sourceValue: 0
+                        property real controlValue: sourceValue
+                        property bool controlActive: true
+                        signal moved(real value)
+                        signal iconTriggered()
+
+                        onSourceValueChanged: if (!quickSlider.pressed) controlValue = sourceValue
+
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 18
+                        color: controlHover.hovered ? window.themeChipHover : window.themeChip
+                        border.width: 1
+                        border.color: controlHover.hovered ? window.themeLineStrong : window.themeLine
+                        Behavior on color { ColorAnimation { duration: 140 } }
+                        Behavior on border.color { ColorAnimation { duration: 140 } }
+
+                        HoverHandler { id: controlHover }
+
+                        Timer {
+                            id: sliderThrottle
+                            interval: 55
+                            onTriggered: controlCard.moved(controlCard.controlValue)
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            spacing: 10
+
+                            Rectangle {
+                                Layout.preferredWidth: 34
+                                Layout.preferredHeight: 34
+                                radius: 12
+                                color: controlCard.controlActive ? window.themeOn : window.themeSurfaceAlt
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: controlCard.controlIcon
+                                    color: controlCard.controlActive ? window.themeOnText : window.themeMuted
+                                    font.family: window.iconFont
+                                    font.pixelSize: 17
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: controlCard.iconTriggered()
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: controlCard.controlLabel
+                                        color: window.themeSubtext
+                                        font.family: window.uiFont
+                                        font.weight: Font.DemiBold
+                                        font.pixelSize: 10
+                                    }
+                                    Text {
+                                        text: Math.round(controlCard.controlValue) + "%"
+                                        color: window.themeMuted
+                                        font.family: window.uiFont
+                                        font.pixelSize: 9
+                                    }
+                                }
+
+                                Slider {
+                                    id: quickSlider
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 18
+                                    from: 0
+                                    to: 100
+                                    value: controlCard.controlValue
+                                    onMoved: {
+                                        controlCard.controlValue = value
+                                        if (!sliderThrottle.running) sliderThrottle.start()
+                                    }
+                                    onPressedChanged: {
+                                        window.setInteracting(pressed)
+                                        if (!pressed) {
+                                            sliderThrottle.stop()
+                                            controlCard.moved(controlCard.controlValue)
+                                        }
+                                    }
+
+                                    background: Rectangle {
+                                        x: quickSlider.leftPadding
+                                        y: quickSlider.topPadding + quickSlider.availableHeight / 2 - height / 2
+                                        width: quickSlider.availableWidth
+                                        height: 5
+                                        radius: 2.5
+                                        color: window.themeTrack
+                                        Rectangle {
+                                            width: quickSlider.visualPosition * parent.width
+                                            height: parent.height
+                                            radius: parent.radius
+                                            color: controlCard.controlActive ? window.themeOn : window.themeMuted
+                                        }
+                                    }
+                                    handle: Rectangle {
+                                        x: quickSlider.leftPadding + quickSlider.visualPosition * (quickSlider.availableWidth - width)
+                                        y: quickSlider.topPadding + quickSlider.availableHeight / 2 - height / 2
+                                        implicitWidth: quickSlider.pressed ? 16 : 13
+                                        implicitHeight: implicitWidth
+                                        radius: width / 2
+                                        color: window.themeText
+                                        border.width: 3
+                                        border.color: window.themeSurface
+                                        Behavior on implicitWidth { NumberAnimation { duration: 120 } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 62
+                        Layout.minimumHeight: 62
+                        Layout.maximumHeight: 62
+                        spacing: 10
+
+                        QuickControlSlider {
+                            controlIcon: window.islandState.muted ? "󰝟" : "󰕾"
+                            controlLabel: i18n.volumeShort
+                            sourceValue: window.islandState.muted ? 0 : window.islandState.volume
+                            controlActive: !window.islandState.muted
+                            onMoved: value => window.runDirect(["wpctl", "set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SINK@", Math.round(value) + "%"])
+                            onIconTriggered: window.run(["mute"])
+                        }
+
+                        QuickControlSlider {
+                            controlIcon: "󰃠"
+                            controlLabel: i18n.brightnessShort
+                            sourceValue: window.islandState.brightness
+                            onMoved: value => window.runDirect(["brightnessctl", "set", Math.round(value) + "%"])
+                        }
+                    }
+
+                    component QuickActionTile: Rectangle {
+                        id: tile
+                        property string tileIcon: ""
+                        property string tileLabel: ""
+                        property bool active: false
+                        property bool danger: false
+                        signal triggered()
+
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 17
+                        color: tile.active ? window.themeOn
+                            : (tileHit.containsMouse ? window.themeChipHover : window.themeChip)
+                        border.width: 1
+                        border.color: tile.danger ? Qt.rgba(window.themeStatusAlert.r, window.themeStatusAlert.g, window.themeStatusAlert.b, 0.42)
+                                                        : (tile.active ? window.themeOn : window.themeLine)
+                        Behavior on color { ColorAnimation { duration: 160 } }
+                        Behavior on border.color { ColorAnimation { duration: 160 } }
+                        scale: tileHit.pressed ? 0.96 : 1
+                        Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 10
+                            spacing: 8
+
+                            Rectangle {
+                                Layout.preferredWidth: 30
+                                Layout.preferredHeight: 30
+                                radius: 11
+                                color: tile.active ? Qt.rgba(window.themeOnText.r, window.themeOnText.g, window.themeOnText.b, 0.14)
+                                                   : window.themeSurfaceAlt
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: tile.tileIcon
+                                    font.family: window.iconFont
+                                    font.pixelSize: 16
+                                    color: tile.active ? window.themeOnText
+                                        : (tile.danger ? window.themeStatusAlert : window.themeText)
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: tile.tileLabel
+                                font.family: window.uiFont
+                                font.weight: Font.DemiBold
+                                font.pixelSize: 9
+                                color: tile.active ? window.themeOnText : window.themeSubtext
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        MouseArea {
+                            id: tileHit
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: tile.triggered()
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredHeight: 78
+                        Layout.minimumHeight: 78
+                        Layout.maximumHeight: 78
+                        spacing: 8
+
+                        QuickActionTile {
+                            tileIcon: window.dndActive ? "󰂛" : "󰂚"
+                            tileLabel: i18n.qsDnd
+                            active: window.dndActive
+                            onTriggered: window.dndActive = !window.dndActive
+                        }
+
+                        QuickActionTile {
+                            tileIcon: window.islandState.bluetoothPowered ? "󰂯" : "󰂲"
+                            tileLabel: i18n.qsBluetooth
+                            active: window.islandState.bluetoothPowered
+                            onTriggered: window.run(["bluetooth-toggle"])
+                        }
+
+                        QuickActionTile {
+                            tileIcon: window.islandState.system.wifiPowered ? "󰖩" : "󰖪"
+                            tileLabel: i18n.qsWifi
+                            active: window.islandState.system.wifiPowered
+                            onTriggered: window.run(["wifi-toggle"])
+                        }
+
+                        QuickActionTile {
+                            tileIcon: "󰌾"
+                            tileLabel: i18n.qsLock
+                            onTriggered: window.runDirect(["bash", "-c", "~/.config/hypr/scripts/lock.sh"])
+                        }
+
+                        QuickActionTile {
+                            tileIcon: "󰍃"
+                            tileLabel: i18n.qsLogout
+                            danger: true
+                            onTriggered: window.runDirect(["hyprctl", "dispatch", "exit"])
+                        }
+                    }
+                }
+            }
+
         }
 
-        // ---------------------------------------------------------- device card
+        // ------------------------------------------------------ time completion
+        // The island changing shape is the alert. Nothing else on this desktop
+        // can do that, so a finished timer gets the one gesture that is unique
+        // to this surface rather than another rectangle sliding past.
         Item {
-            id: deviceEventCard
+            id: timeAlertCard
             anchors.fill: parent
             visible: opacity > 0.01
-            opacity: window.deviceEventVisible ? 1 : 0
-            z: 19
-            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+            opacity: window.timeAlertVisible ? 1 : 0
+            z: 21
+            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+            // Anywhere on the card dismisses. A person reaching for an alarm
+            // is not aiming carefully, and the explicit button below is for
+            // when they want to be sure rather than the only way through.
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: window.dismissTimeAlertByPointer()
+            }
 
             Rectangle {
-                id: eventSweep
+                id: timeAlertSweep
                 y: 1
-                width: 90
+                width: 110
                 height: parent.height - 2
                 radius: 30
-                color: window.themeText
-                opacity: 0.04
+                color: window.themeStatusAlert
+                opacity: 0.07
                 rotation: 18
                 x: -400
                 NumberAnimation on x {
-                    running: window.deviceEventVisible
-                    from: -140
-                    to: deviceEventCard.width + 120
-                    duration: 1400
+                    running: window.timeAlertVisible
+                    from: -160
+                    to: timeAlertCard.width + 140
+                    duration: 1600
+                    loops: Animation.Infinite
                     easing.type: Easing.InOutCubic
-                    // Parked well off-screen on stop instead of freezing wherever
-                    // it happened to be when the card was dismissed.
-                    onRunningChanged: if (!running) eventSweep.x = -400
+                    onRunningChanged: if (!running) timeAlertSweep.x = -400
                 }
             }
 
             RowLayout {
-                anchors { fill: parent; leftMargin: 20; rightMargin: 22; topMargin: 12; bottomMargin: 12 }
+                anchors { fill: parent; leftMargin: 24; rightMargin: 24; topMargin: 16; bottomMargin: 16 }
                 spacing: 16
 
+                // Icon in a ring that beats on the shared sine, at the same
+                // rate the battery card uses for "act now".
                 Item {
-                    Layout.preferredWidth: 60
-                    Layout.preferredHeight: 60
+                    Layout.preferredWidth: 62
+                    Layout.preferredHeight: 62
 
                     Rectangle {
-                        id: devicePulseRing
+                        id: timeAlertRing
                         anchors.centerIn: parent
-                        width: 56
-                        height: 56
-                        radius: 19
+                        width: 58
+                        height: 58
+                        radius: 20
                         color: "transparent"
-                        border.width: 1
-                        border.color: window.themeLineStrong
-                        opacity: window.deviceEventType === "microphone"
-                            ? 0.35 + Math.abs(Math.sin(window.visualPhase)) * 0.6
-                            : 0.7
-                        RotationAnimation on rotation {
-                            running: window.deviceEventVisible && window.deviceEventType === "camera"
-                            from: 0
-                            to: 360
-                            duration: 2400
-                            loops: Animation.Infinite
-                            onRunningChanged: if (!running) devicePulseRing.rotation = 0
-                        }
+                        border.width: 1.5
+                        border.color: window.themeStatusAlert
+                        opacity: 0.35 + Math.abs(Math.sin(window.visualPhase * 2.2)) * 0.65
                     }
+
                     Rectangle {
+                        id: timeAlertIconBox
                         anchors.centerIn: parent
-                        width: 62; height: 62; radius: 21
-                        color: "transparent"
-                        border.width: 1
-                        border.color: window.themeLine
-                    }
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 42; height: 42; radius: 14
-                        color: window.themeOn
+                        width: 44
+                        height: 44
+                        radius: 15
+                        color: window.themeStatusAlert
+
                         Text {
                             anchors.centerIn: parent
-                            text: window.deviceEventIcon
-                            color: window.themeOnText
+                            text: window.timeAlertIcon
+                            color: "#ffffff"
+                            font.family: window.iconFont
+                            font.pixelSize: 22
+                        }
+                    }
+
+                    // One decisive arrival, then the ring carries it. Restarted
+                    // per alert from raiseTimeAlert rather than bound to the
+                    // visible flag, so a second timer landing on the back of the
+                    // first still gets its own entrance.
+                    SequentialAnimation {
+                        id: timeAlertPop
+                        ParallelAnimation {
+                            NumberAnimation {
+                                target: timeAlertIconBox; property: "scale"
+                                from: 0.6; to: 1.16; duration: 320; easing.type: Easing.OutBack
+                            }
+                            NumberAnimation {
+                                target: timeAlertRing; property: "scale"
+                                from: 0.7; to: 1.2; duration: 380; easing.type: Easing.OutBack
+                            }
+                        }
+                        ParallelAnimation {
+                            NumberAnimation {
+                                target: timeAlertIconBox; property: "scale"
+                                to: 1.0; duration: 240; easing.type: Easing.OutCubic
+                            }
+                            NumberAnimation {
+                                target: timeAlertRing; property: "scale"
+                                to: 1.0; duration: 240; easing.type: Easing.OutCubic
+                            }
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 3
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: window.timeAlertTitle
+                        elide: Text.ElideRight
+                        color: window.themeText
+                        font.family: window.uiFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 16
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: window.timeAlertDetail
+                        elide: Text.ElideRight
+                        color: window.themeSubtext
+                        font.family: window.uiFont
+                        font.pixelSize: 11
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 2
+                        // Says which keys work, because the card is reachable
+                        // without the pointer and there is no other signpost.
+                        text: window.lang === "tr"
+                            ? "Esc · Boşluk · tıkla"
+                            : "Esc · Space · click"
+                        color: window.themeMuted
+                        font.family: window.uiFont
+                        font.weight: Font.DemiBold
+                        font.pixelSize: 8
+                        font.letterSpacing: 0.8
+                    }
+                }
+
+                Rectangle {
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.preferredWidth: 104
+                    Layout.preferredHeight: 40
+                    radius: 14
+                    color: dismissHit.containsMouse
+                        ? window.themeStatusAlert
+                        : Qt.rgba(window.themeStatusAlert.r, window.themeStatusAlert.g, window.themeStatusAlert.b, 0.16)
+                    border.width: 1
+                    border.color: window.themeStatusAlert
+                    scale: dismissHit.pressed ? 0.95 : 1
+                    Behavior on color { ColorAnimation { duration: 150 } }
+                    Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: i18n.tmDismiss
+                        color: dismissHit.containsMouse ? "#ffffff" : window.themeText
+                        font.family: window.uiFont
+                        font.weight: Font.Bold
+                        font.pixelSize: 11
+                        Behavior on color { ColorAnimation { duration: 150 } }
+                    }
+
+                    MouseArea {
+                        id: dismissHit
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: window.dismissTimeAlertByPointer()
+                    }
+                }
+            }
+        }
 
         // ---------------------------------------------------------- device card
         Item {
@@ -3983,6 +5692,61 @@ PanelWindow {
             anchors.margins: -2
             hoverEnabled: true
             onClicked: pchip.triggered()
+        }
+    }
+
+    // The one button shape the time page uses for everything that is not the
+    // primary action: presets, steppers, lap, skip, reset. Same geometry
+    // throughout, so the row keeps its rhythm as the stage changes modes.
+    component TimeKey: Rectangle {
+        id: key
+        property string label: ""
+        property string glyph: ""
+        property bool active: false
+        signal triggered()
+
+        height: 34
+        radius: 11
+        color: key.active ? window.themeOn
+            : (keyHit.containsMouse ? window.themeChipHover : window.themeChip)
+        border.width: 1
+        border.color: key.active ? window.themeOn : window.themeLine
+        scale: keyHit.pressed ? 0.94 : 1
+        Behavior on color { ColorAnimation { duration: 150 } }
+        Behavior on border.color { ColorAnimation { duration: 150 } }
+        Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+
+        Row {
+            anchors.centerIn: parent
+            spacing: 4
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: key.glyph !== ""
+                text: key.glyph
+                color: key.active ? window.themeOnText : window.themeSubtext
+                font.family: window.iconFont
+                font.pixelSize: 11
+                Behavior on color { ColorAnimation { duration: 150 } }
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: key.label !== ""
+                text: key.label
+                color: key.active ? window.themeOnText : window.themeSubtext
+                font.family: window.uiFont
+                font.weight: Font.Bold
+                font.pixelSize: 9
+                Behavior on color { ColorAnimation { duration: 150 } }
+            }
+        }
+
+        MouseArea {
+            id: keyHit
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: key.triggered()
         }
     }
 
