@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dynamic Island for Quickshell</title>
-<meta name="description" content="A monochrome notch-style overlay for Hyprland. Media, live device indicators and a pixel-art clock in one surface that grows under the pointer.">
+<meta name="description" content="A monochrome notch-style overlay for Hyprland. Media, timers, live device indicators and a pixel-art clock in one surface that grows under the pointer.">
 <meta property="og:title" content="Dynamic Island for Quickshell">
 <meta property="og:description" content="A monochrome notch-style overlay for Hyprland.">
 <meta property="og:image" content="cover.png">
@@ -385,36 +385,36 @@ footer .sp { flex: 1; }
 </section>
 
 <section class="wrap" id="changelog">
-  <p class="eyebrow">Changelog · 2026.08.09</p>
+  <p class="eyebrow">Changelog · 2026.08.15</p>
   <div class="release-head">
-    <h2>Motion you can tune. Interaction you can choose.</h2>
+    <h2>It keeps time now — and tells you when the time is up.</h2>
     <p>
-      This release adds a complete settings surface, four contrast-safe themes,
-      optional hover expansion, a player-only collapsed mode, three spectrum
-      behaviours, adjustable animation visibility, and quality-checked cached
-      YouTube thumbnails.
+      A timer, a stopwatch with laps, a focus cycle and an alarm, rebuilt as one
+      instrument that retunes rather than four widgets splitting the width.
+      Finishing is an event: the island changes shape, chimes, and waits to be
+      answered. A tool left running stays visible on the collapsed pill.
     </p>
   </div>
 
   <div class="release-grid">
     <figure class="release-card wide">
-      <img src="screenshots/changelog/media-animation.png" alt="Expanded Umbra media panel with a live audio spectrum" loading="lazy" width="1120" height="450">
-      <figcaption><b>Audio becomes the surface</b><span>Wave, Live and Calm variants share real cava data; visibility can be set to Soft, Balanced or Bold.</span></figcaption>
+      <img src="screenshots/time-tools.png" alt="The time page with a running timer, a progress strip of square cells, duration presets and a rail of four modes" loading="lazy" width="780" height="324">
+      <figcaption><b>One instrument, four modes</b><span>The readout uses the same 5×7 matrix as the clock, so its digits roll the same way, and progress is drawn from those same square cells rather than a bar parked underneath.</span></figcaption>
     </figure>
 
     <figure class="release-card">
-      <img src="screenshots/changelog/mini-player.png" alt="Player-only collapsed island with cover, title and transport buttons" loading="lazy" width="920" height="220">
-      <figcaption><b>Player-only collapsed mode</b><span>Cover, title and previous/play/next stay over the audio field; the bottom track separates elapsed time from what remains.</span></figcaption>
+      <img src="screenshots/time-alert.png" alt="A completion card reading Time's up with a dismiss button" loading="lazy" width="470" height="128">
+      <figcaption><b>Finishing is an event</b><span>Esc, Space, Return or a click — but not the pointer that happened to be where it appeared, and not the island collapsing.</span></figcaption>
     </figure>
 
     <figure class="release-card">
-      <img src="screenshots/changelog/hover-setting.png" alt="General settings page showing the Open on hover switch turned off" loading="lazy" width="1020" height="720">
-      <figcaption><b>Hover is optional</b><span>With hover disabled, compact controls remain usable and a click on empty pill space opens the full panel.</span></figcaption>
+      <img src="screenshots/time-capsule.png" alt="The collapsed pill carrying a green capsule with a running timer" loading="lazy" width="566" height="54">
+      <figcaption><b>Still counting while closed</b><span>Mode icon, live value, a drain line and a travelling sweep. Amber and twice the pace inside the last minute.</span></figcaption>
     </figure>
 
     <figure class="release-card wide">
-      <img src="screenshots/changelog/animation-settings.png" alt="Media settings with mini player mode, motion variants and animation visibility" loading="lazy" width="700" height="430">
-      <figcaption><b>Settings that preview the result</b><span>Motion choices animate in place, themes show their real palette, and every label switches live between English and Turkish.</span></figcaption>
+      <img src="screenshots/changelog/media-animation.png" alt="Expanded Umbra media panel with a live audio spectrum" loading="lazy" width="1120" height="450">
+      <figcaption><b>Previously: audio becomes the surface</b><span>Wave, Live and Calm variants share real cava data; visibility can be set to Soft, Balanced or Bold.</span></figcaption>
     </figure>
   </div>
 </section>
@@ -492,6 +492,30 @@ footer .sp { flex: 1; }
       <figure><img src="screenshots/device.png" alt="A card announcing that the microphone became active, with a live level meter" loading="lazy" width="427" height="113"></figure>
     </div>
 
+    <div class="shot">
+      <div class="rail">
+        <p class="name">Time</p>
+        <p class="note">A timer, a stopwatch with laps, a focus cycle and an alarm as one instrument that retunes, rather than four widgets splitting the width. The readout is drawn in the same 5×7 matrix as the clock, and progress is a strip of those same square cells. The rail below keeps the three modes that are not on stage reporting their live values.</p>
+      </div>
+      <figure><img src="screenshots/time-tools.png" alt="The time page showing a running timer at three minutes nine seconds, a progress strip of square cells, duration presets, and a rail of four modes below" loading="lazy" width="780" height="324"></figure>
+    </div>
+
+    <div class="shot">
+      <div class="rail">
+        <p class="name">Time&rsquo;s up</p>
+        <p class="note">Finishing is an event: the island changes shape into a card that pulses until it is answered. Esc, Space, Return, a click anywhere on it, or its button — but not the pointer that happened to be resting where it appeared, and not the island collapsing. A chime plays alongside it, and under a fullscreen window, where the island cannot draw at all, it falls back to the notification daemon and still sounds.</p>
+      </div>
+      <figure><img src="screenshots/time-alert.png" alt="A completion card reading Time's up, five minute timer finished, with a dismiss button" loading="lazy" width="470" height="128"></figure>
+    </div>
+
+    <div class="shot">
+      <div class="rail">
+        <p class="name">Still counting</p>
+        <p class="note">A running tool keeps a capsule on the collapsed pill — mode icon, live value in the pixel matrix, a drain line along its edge and a sweep of light travelling across it. Inside the last minute the capsule turns amber and the sweep more than doubles its pace, so the pill escalates on its own without ever growing or moving.</p>
+      </div>
+      <figure><img src="screenshots/time-capsule.png" alt="The collapsed pill with a green capsule showing a running timer beside the clock and battery" loading="lazy" width="566" height="54"></figure>
+    </div>
+
   </div>
 </section>
 
@@ -521,6 +545,10 @@ footer .sp { flex: 1; }
     <div class="row">
       <dt>Pixel-art clock</dt>
       <dd>A 5×7 glyph table rendered to a canvas, with vertical digit rolls and Turkish Ç/Ğ/İ/Ö/Ş/Ü included.</dd>
+    </div>
+    <div class="row">
+      <dt>Time tools</dt>
+      <dd>Timer, stopwatch with laps, focus/break cycle and alarm, sharing one stage and one set of controls. Countdowns tick per second; the stopwatch is elapsed-time based, because it is the one readout showing hundredths, where drift would show. Completion changes the island's shape and plays a chime, and stays up until it is actually answered — a timer that finished while nobody was watching has not been acknowledged. A tool left running keeps a capsule on the collapsed pill, amber and quickening inside the last minute.</dd>
     </div>
     <div class="row">
       <dt>Synced lyrics</dt>

@@ -47,11 +47,19 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 <td><img src="docs/screenshots/reply.png" alt="Satır içi yanıtlı bildirim"><br><sub><b>Yanıt</b> — destekleyen bildirimler için metin kutusu ve gönder düğmesi</sub></td>
 <td><img src="docs/screenshots/device.png" alt="Mikrofon gizlilik kartı"><br><sub><b>Gizlilik</b> — mikrofon veya kamera her açılıp kapandığında belirir</sub></td>
 </tr>
+<tr>
+<td><img src="docs/screenshots/time-tools.png" alt="Zaman araçları sayfası"><br><sub><b>Zaman</b> — zamanlayıcı, kronometre, odak ve alarm tek sahnede; alttaki ray diğer üçünü canlı gösterir</sub></td>
+<td><img src="docs/screenshots/time-alert.png" alt="Zamanlayıcı bitiş kartı"><br><sub><b>Süre doldu</b> — ada şekil değiştirip haber verir; Esc, Boşluk veya tıkla ile kapanır</sub></td>
+</tr>
 </table>
 
 ## Neler değişti
 
 <table>
+<tr>
+<td width="50%"><img src="docs/screenshots/time-tools.png" alt="Zaman araçları sayfası"><br><sub><b>Zaman araçları, yeniden</b> — dört modlu tek enstrüman; okuma saatle aynı 5×7 matriste çiziliyor</sub></td>
+<td width="50%"><img src="docs/screenshots/time-capsule.png" alt="Kapalı hapta çalışan zamanlayıcı"><br><sub><b>Kapalıyken de görünür</b> — çalışan araç hapta bir kapsül bırakır: boşalan çizgi ve sıfıra yaklaşınca hızlanan ışık</sub></td>
+</tr>
 <tr>
 <td width="50%"><img src="docs/screenshots/changelog/mini-player.png" alt="Yalnız oynatıcı gösteren kapalı ada"><br><sub><b>Mini oynatıcı</b> — canlı ses alanı üzerinde kapak, başlık, önceki/oynat/sonraki ve kalan süre çizgisi</sub></td>
 <td width="50%"><img src="docs/screenshots/changelog/hover-setting.png" alt="Üzerine gelince aç ayarı"><br><sub><b>Etkileşimi seç</b> — hover ile aç veya kapalı tutup tam panel gerektiğinde tıkla</sub></td>
@@ -109,6 +117,27 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 - **Pixel-art saat** — dormant bir LED ızgarası üzerine canvas ile çizilen 5×7
   bitmap yazı tipi. Rakamlar değişince satır satır dikey olarak yuvarlanır.
   Türkçe Ç/Ğ/İ/Ö/Ş/Ü dahildir, gün/ay adları da aktif dile göre değişir.
+- **Zaman araçları** — zamanlayıcı, turlu kronometre, odak/mola döngüsü ve
+  alarm; genişliği bölüşen dört ayrı parça yerine yeniden akort olan tek bir
+  enstrüman olarak. Okuma saatle aynı 5×7 matrisi kullanır, yani rakamlar aynı
+  şekilde yuvarlanır; ilerleme de altına park edilmiş bir çubuk yerine gliflerle
+  aynı kare hücrelerden oluşan bir şeritle çizilir. Alttaki ray, sahnede olmayan
+  üç modu canlı değerleriyle gösterir — birini öne almak hiçbir şeyi gizlemez.
+  Geri sayımlar saniye saniye işler; kronometre ise geçen süreye dayanır, çünkü
+  yüzdelik gösteren tek okuma odur ve orada kayma görünür olurdu.
+- **Bitiş bir olaydır** — zamanlayıcı, odak evresi veya alarm tamamlandığında ada
+  şekil değiştirip cevaplanana kadar nabız atan bir karta dönüşür; yanında bir
+  çan sesiyle (`pw-play`/`paplay`/`aplay` ya da freedesktop teması). Esc, Boşluk,
+  Enter, kartın herhangi bir yerine tıklama veya düğmesiyle kapanır — ama kartın
+  belirdiği yerde duran imleçle değil, adanın kapanmasıyla da değil; kimse
+  bakmıyorken biten bir zamanlayıcı görülmüş sayılmaz. Tam ekran bir pencere
+  altında, adanın hiç çizilemediği durumda, bildirim arka planına düşer ve yine
+  de çalar.
+- **Kapalıyken de görünür** — çalışan bir zamanlayıcı, kronometre veya odak
+  evresi ya da on dakika içindeki bir alarm, kapalı hapta bir kapsül bırakır:
+  mod simgesi, piksel matriste canlı değer, boşalan bir çizgi ve üzerinden geçen
+  bir ışık. Son bir dakikaya girince kapsül kehribara döner ve ışık hızını ikiye
+  katlar; hap ne büyüyerek ne yer değiştirerek, kendi başına tırmanır.
 - **Canlı cihaz göstergeleri** — PipeWire mikrofonu ve V4L2 kamerası her
   başladığında/durduğunda bir kart yükseltir. Bunlar gizlilik göstergeleri
   olduğu için ada kapalıyken bile makul bir hızda yoklanır.
@@ -116,11 +145,15 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
   simgesiyle — gönderenin gerçek görselini genel uygulama simgesi yerine
   öncelikli tutar, bu da bir tarayıcı bildiriminin sitenin favicon'unu mu
   yoksa tarayıcının kendi simgesini mi göstereceğinin farkıdır — ya da
-  freedesktop simge adı çözümlemesiyle.
+  freedesktop simge adı çözümlemesiyle. Karttaki kopyala düğmesi, mesaj
+  içeriğini `wl-copy` ile doğrudan panoya alır.
 - **Ölçerler** — ses, parlaklık ve mikrofon kazancı sürüklenebilir segment
   çubukları olarak (`wpctl` / `brightnessctl`).
 - **Hava durumu ve pil** — IP konumuyla Open-Meteo, 15 dakika önbelleklenir;
-  pil seviyesi, şarj durumu ve kalan süre sysfs ile UPower'dan.
+  pil seviyesi, şarj durumu ve kalan süre sysfs ile UPower'dan. Seviye
+  okuması renk kodludur (≥%50 yeşil, %20–49 sarı, <%20 kırmızı), şarj
+  olurken yavaş bir nefes alma efekti belirir, ve fişe takılı değilken
+  kırmızıya geçiş anında kritik bir kart belirir.
 - **Yoldan çekilir** — odaktaki pencere tam ekrana geçince tamamen gizlenir,
   çıkınca geri gelir.
 
@@ -129,7 +162,7 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 | | |
 | --- | --- |
 | **Zorunlu** | [Quickshell](https://quickshell.outfoxxed.me/) 0.3+, Hyprland (veya layer-shell destekleyen başka bir wlroots bileşik yöneticisi), `jq`, bir Nerd Font |
-| **İsteğe bağlı** | `playerctl` (medya), `wpctl` + `pactl` (ses, mikrofon algılama, arama algılama), `brightnessctl`, `cava` (spektrum), `bluetoothctl`, `upower`, `curl` (hava durumu, şarkı sözleri ve tarayıcı sekmeleri için kalite denetimli önbellekli kapak görseli), `fuser` (kamera algılama) |
+| **İsteğe bağlı** | `playerctl` (medya), `wpctl` + `pactl` (ses, mikrofon algılama, arama algılama), `brightnessctl`, `cava` (spektrum), `bluetoothctl`, `upower`, `curl` (hava durumu, şarkı sözleri ve tarayıcı sekmeleri için kalite denetimli önbellekli kapak görseli), `fuser` (kamera algılama), `pw-play`/`paplay`/`aplay` veya `canberra-gtk-play` (zamanlayıcı çanı) |
 
 Eksik olan her şey ilgili bölümü boş bırakır ya da yedeğe düşer — hiçbiri
 projeyi çökertmez.
@@ -209,6 +242,14 @@ qs -p <shell.qml> ipc call dynamicIsland activity "herhangi bir metin"
 qs -p <shell.qml> ipc call dynamicIsland notify <uygulama> <başlık> <gövde> <simge>
 qs -p <shell.qml> ipc call dynamicIsland notifyWithActions <uygulama> <başlık> <gövde> <simge> <actionsJson> <uid> <hasInlineReply> <inlineReplyPlaceholder>
 qs -p <shell.qml> ipc call dynamicIsland deviceEvent <microphone|camera> <true|false> <değer>
+qs -p <shell.qml> ipc call dynamicIsland battery <seviye> <Charging|Discharging>
+qs -p <shell.qml> ipc call dynamicIsland batteryReset
+qs -p <shell.qml> ipc call dynamicIsland batteryAlert <seviye>
+qs -p <shell.qml> ipc call dynamicIsland timeMode <timer|stopwatch|focus|alarm>
+qs -p <shell.qml> ipc call dynamicIsland timeToggle
+qs -p <shell.qml> ipc call dynamicIsland timeReset
+qs -p <shell.qml> ipc call dynamicIsland timerTest
+qs -p <shell.qml> ipc call dynamicIsland timerDismiss
 qs -p <shell.qml> ipc call dynamicIsland lyrics
 qs -p <shell.qml> ipc call dynamicIsland language <tr|en|toggle>
 qs -p <shell.qml> ipc call dynamicIsland hover <true|false>
@@ -225,6 +266,39 @@ tarafında biraz bağlantı gerektirir; bir sonraki bölüme bakın — özellik
 arama, gönderen bildirimin `expire_timeout`'undan bağımsız olarak kendi
 zamanlayıcısında çalar; yanlışlıkla tetiklenmiş biri dahil, erken çıkmanın
 tek yolu budur.
+
+`battery`, gerçek sysfs/UPower okumasının yerine birkaç saniyeliğine geçer;
+böylece seviye rengi (≥%50 yeşil, %20–49 sarı, <%20 kırmızı) ve şarj nefes
+efekti istendiğinde denenebilir. `batteryReset`, ~8 saniyelik süresini
+beklemeden geçersiz kılmayı erken kaldırır. `batteryAlert`, gerçek ya da
+geçersiz kılınan seviyeden bağımsız olarak kritik pil kartını doğrudan
+tetikler.
+
+### Widget'ları test etme
+
+Birlikte gelen `Makefile`, yukarıdaki IPC çağrılarını (ve birkaç fazlasını)
+tek satırlık kısayollara sarar; böylece herhangi bir widget, gerçek donanım
+ya da uygulama durumunu beklemeden denenebilir:
+
+```bash
+make mic-on              # mikrofon kapsülü yeşile döner
+make camera-off
+make battery-animation   # %55, şarjda — nefes efektine bakın
+make battery-low         # %12, şarjsız — kırmızı
+make battery-alert       # kritik pil kartı, yukarıdaki seviyeden bağımsız
+make timer               # zaman sayfasını zamanlayıcı modunda aç
+make time-toggle         # sahnedeki modu başlat/duraklat
+make timer-done          # bitiş kartını çaldır — çan dahil
+make call                # gelen arama zili
+make notification
+make theme-cycle
+make help                # tam liste
+```
+
+Varsayılan olarak `SUPER` kısayolunuzun işaret ettiği `Shell.qml`'i hedefler;
+kurulumunuz başka bir yerdeyse `make SHELL_QML=/yol/Shell.qml <hedef>` ile
+geçersiz kılın. Bunların herhangi birinin bir işe yaraması için ada gerçekten
+çalışıyor olmalı.
 
 ### Aramalar ve satır içi yanıt
 

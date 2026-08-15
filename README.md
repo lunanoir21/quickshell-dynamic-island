@@ -47,11 +47,19 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 <td><img src="docs/screenshots/reply.png" alt="Notification with inline reply"><br><sub><b>Reply</b> — a field and send button for notifications that support it</sub></td>
 <td><img src="docs/screenshots/device.png" alt="Microphone privacy card"><br><sub><b>Privacy</b> — raised whenever the mic or camera starts or stops</sub></td>
 </tr>
+<tr>
+<td><img src="docs/screenshots/time-tools.png" alt="Time tools page"><br><sub><b>Time</b> — timer, stopwatch, focus and alarm on one stage, with the rail below still reporting the other three</sub></td>
+<td><img src="docs/screenshots/time-alert.png" alt="Timer completion card"><br><sub><b>Time's up</b> — the island changes shape to say so, and answers to Esc, Space or a click</sub></td>
+</tr>
 </table>
 
 ## What changed
 
 <table>
+<tr>
+<td width="50%"><img src="docs/screenshots/time-tools.png" alt="Time tools page"><br><sub><b>Time tools, rebuilt</b> — one instrument with four modes, the readout drawn in the same 5×7 matrix as the clock</sub></td>
+<td width="50%"><img src="docs/screenshots/time-capsule.png" alt="Running timer on the collapsed pill"><br><sub><b>Visible while closed</b> — a running tool keeps a capsule on the pill, with a drain line and a sweep that quickens near zero</sub></td>
+</tr>
 <tr>
 <td width="50%"><img src="docs/screenshots/changelog/mini-player.png" alt="Player-only collapsed mode"><br><sub><b>Mini player</b> — cover, title, previous/play/next and a remaining-time track over the live audio field</sub></td>
 <td width="50%"><img src="docs/screenshots/changelog/hover-setting.png" alt="Open on hover setting"><br><sub><b>Choose the interaction</b> — hover to open, or leave it closed and click when the full panel is wanted</sub></td>
@@ -111,17 +119,43 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
   grid. Digits roll vertically one pixel row at a time when they change. Turkish
   Ç/Ğ/İ/Ö/Ş/Ü are included, and the day/month names follow whichever of the two
   languages is active.
+- **Time tools** — a timer, a stopwatch with laps, a focus/break cycle and an
+  alarm, as one instrument that retunes rather than four widgets splitting the
+  width. The readout uses the same 5×7 matrix as the clock, so its digits roll
+  the same way, and progress is drawn as a strip of the same square cells rather
+  than a bar parked underneath. The rail along the bottom keeps the three modes
+  that aren't on stage visible with their live values, so promoting one hides
+  nothing. Countdowns tick per second; the stopwatch is elapsed-time based,
+  because it is the one readout showing hundredths, where drift would show.
+- **Finishing is an event** — when a timer, focus phase or alarm completes, the
+  island changes shape into a card that pulses until it is answered, with a
+  chime (`pw-play`/`paplay`/`aplay`, or the freedesktop theme). It is dismissed
+  by Esc, Space, Return, a click anywhere on it, or its button — but not by the
+  pointer that happened to be resting where it appeared, and not by the island
+  collapsing, since a timer that finished while nobody was watching has not been
+  acknowledged. Under a fullscreen window, where the island cannot draw at all,
+  it falls back to the notification daemon and still chimes.
+- **Still visible while closed** — a running timer, stopwatch or focus phase, or
+  an alarm within ten minutes, keeps a capsule on the collapsed pill: mode icon,
+  live value in the pixel matrix, a drain line, and a sweep of light that
+  travels across it. Inside the last minute the capsule turns amber and the
+  sweep more than doubles its pace, so the pill escalates on its own without
+  ever growing or moving.
 - **Live device indicators** — PipeWire microphone and V4L2 camera use raise a
   card the moment either starts or stops. These are privacy indicators, so they
   keep polling at a reasonable rate even while the island is collapsed.
 - **Notifications** — an app can push a card through IPC, with its own icon —
   preferring the sender's actual image over its generic app icon, which is the
   difference between a browser notification showing the site's favicon or the
-  browser's — or a freedesktop icon-name lookup.
+  browser's — or a freedesktop icon-name lookup. A copy button on the card
+  grabs the message body straight to the clipboard via `wl-copy`.
 - **Meters** — volume, brightness and microphone gain as draggable segment bars
   (`wpctl` / `brightnessctl`).
 - **Weather and battery** — Open-Meteo with IP geolocation, cached for 15 minutes;
-  battery level, charge state and time-to-empty from sysfs and UPower.
+  battery level, charge state and time-to-empty from sysfs and UPower. The
+  level reading is colour-coded (green ≥50%, yellow 20–49%, red <20%), charging
+  gets a slow breathing pulse, and a critical card pops up on the crossing into
+  red while unplugged.
 - **Gets out of the way** — hides completely when the focused window goes
   fullscreen, and comes back when it leaves.
 
@@ -130,7 +164,7 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 | | |
 | --- | --- |
 | **Required** | [Quickshell](https://quickshell.outfoxxed.me/) 0.3+, Hyprland (or another wlroots compositor with layer-shell), `jq`, a Nerd Font |
-| **Optional** | `playerctl` (media), `wpctl` + `pactl` (audio, mic detection, call detection), `brightnessctl`, `cava` (spectrum), `bluetoothctl`, `upower`, `curl` (weather, lyrics, and quality-checked cached thumbnails for browser tabs), `fuser` (camera detection) |
+| **Optional** | `playerctl` (media), `wpctl` + `pactl` (audio, mic detection, call detection), `brightnessctl`, `cava` (spectrum), `bluetoothctl`, `upower`, `curl` (weather, lyrics, and quality-checked cached thumbnails for browser tabs), `fuser` (camera detection), `pw-play`/`paplay`/`aplay` or `canberra-gtk-play` (timer chime) |
 
 Anything missing simply leaves its section empty or falls back — nothing hard-fails.
 
@@ -210,6 +244,14 @@ qs -p <shell.qml> ipc call dynamicIsland activity "any text"
 qs -p <shell.qml> ipc call dynamicIsland notify <app> <title> <body> <icon>
 qs -p <shell.qml> ipc call dynamicIsland notifyWithActions <app> <title> <body> <icon> <actionsJson> <uid> <hasInlineReply> <inlineReplyPlaceholder>
 qs -p <shell.qml> ipc call dynamicIsland deviceEvent <microphone|camera> <true|false> <value>
+qs -p <shell.qml> ipc call dynamicIsland battery <level> <Charging|Discharging>
+qs -p <shell.qml> ipc call dynamicIsland batteryReset
+qs -p <shell.qml> ipc call dynamicIsland batteryAlert <level>
+qs -p <shell.qml> ipc call dynamicIsland timeMode <timer|stopwatch|focus|alarm>
+qs -p <shell.qml> ipc call dynamicIsland timeToggle
+qs -p <shell.qml> ipc call dynamicIsland timeReset
+qs -p <shell.qml> ipc call dynamicIsland timerTest
+qs -p <shell.qml> ipc call dynamicIsland timerDismiss
 qs -p <shell.qml> ipc call dynamicIsland lyrics
 qs -p <shell.qml> ipc call dynamicIsland language <tr|en|toggle>
 qs -p <shell.qml> ipc call dynamicIsland hover <true|false>
@@ -226,6 +268,44 @@ in particular is not something to hand-construct on a command line.
 a call rings on its own timer independent of the sending notification's
 `expire_timeout`, so this is the only way to back one out early, including one
 raised by mistake.
+
+`battery` stands in for the real sysfs/UPower reading for a few seconds, so
+the level colour (green ≥50%, yellow 20–49%, red <20%) and the charging pulse
+can be exercised on demand; `batteryReset` drops the override early instead of
+waiting out its ~8s expiry. `batteryAlert` fires the critical-battery card
+directly, independent of the real or overridden level.
+
+`timeMode` opens the time page straight onto one instrument, so a keybind can
+land on the stopwatch rather than wherever the page was left. `timeToggle` and
+`timeReset` drive whichever mode is on the stage without opening the island at
+all — enough to bind start/pause to a key. `timerTest` raises the completion
+card on demand, and `timerDismiss` clears it.
+
+### Testing widgets
+
+The bundled `Makefile` wraps the IPC calls above (and a few more) into
+one-off shortcuts, so any single widget can be exercised without waiting for
+the real hardware or app state to produce it:
+
+```bash
+make mic-on              # mic capsule lights up, green
+make camera-off
+make battery-animation   # 55%, charging — see the breathing pulse
+make battery-low         # 12%, discharging — red
+make battery-alert       # critical-battery card, independent of the level above
+make timer               # open the time page on the timer
+make time-toggle         # start/pause whichever mode is on the stage
+make timer-done          # fire the completion card — chime included
+make call                # incoming-call ring
+make notification
+make theme-cycle
+make help                # full list
+```
+
+It targets whatever `Shell.qml` your `SUPER` keybind points at by default;
+override with `make SHELL_QML=/path/to/Shell.qml <target>` if your checkout
+lives somewhere else. The island has to actually be running for any of this
+to do anything.
 
 ### Calls and inline reply
 
