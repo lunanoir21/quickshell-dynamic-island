@@ -666,20 +666,41 @@ case "${1:-snapshot}" in
         else
             bluetoothctl power on >/dev/null 2>&1 || true
         fi ;;
-    # Completion chime. Tries the PipeWire player first, then the PulseAudio
-    # one, then ALSA, and finally the freedesktop theme — a machine missing all
-    # four just gets the visual card, same as every other optional dependency
-    # here.
+    # Completion chime. Uses ALSA aplay for reliability (produces audible output),
+# with PipeWire/pulseaudio fallbacks. A chime-stop command is also provided
+    # to halt playback when the timer/alarm dismissal card is closed.
     chime)
-        sound="$script_dir/assets/timesup.wav"
+        sound_name="${2:-timesup}"
+        sound="$script_dir/assets/$sound_name.wav"
         if [[ -r "$sound" ]]; then
-            if command -v pw-play >/dev/null 2>&1; then pw-play "$sound"
-            elif command -v paplay >/dev/null 2>&1; then paplay "$sound"
-            elif command -v aplay >/dev/null 2>&1; then aplay -q "$sound"
-            fi >/dev/null 2>&1 &
+            # Try aplay first (most reliable for audible output)
+            if command -v aplay >/dev/null 2>&1; then
+                aplay -q "$sound" >/dev/null 2>&1 &
+                echo $! > "$base_dir/chime.pid"
+            elif command -v pw-play >/dev/null 2>&1; then
+                pw-play "$sound" >/dev/null 2>&1 &
+                echo $! > "$base_dir/chime.pid"
+            elif command -v paplay >/dev/null 2>&1; then
+                paplay "$sound" >/dev/null 2>&1 &
+                echo $! > "$base_dir/chime.pid"
+            fi
         elif command -v canberra-gtk-play >/dev/null 2>&1; then
             canberra-gtk-play -i complete >/dev/null 2>&1 &
+            echo $! > "$base_dir/chime.pid"
         fi ;;
+    chime-stop)
+        if [[ -f "$base_dir/chime.pid" ]]; then
+            kill "$(cat "$base_dir/chime.pid")" 2>/dev/null || true
+            rm -f "$base_dir/chime.pid"
+        fi
+        # Also kill any stray pw-play/paplay/aplay playing our chime files
+        pkill -f "pw-play.*chime" 2>/dev/null || true
+        pkill -f "paplay.*chime" 2>/dev/null || true
+        pkill -f "aplay.*chime" 2>/dev/null || true
+        pkill -f "pw-play.*timesup" 2>/dev/null || true
+        pkill -f "paplay.*timesup" 2>/dev/null || true
+        pkill -f "aplay.*timesup" 2>/dev/null || true
+        ;;
     wifi-toggle)
         if [[ "$(nmcli radio wifi 2>/dev/null)" == "enabled" ]]; then
             nmcli radio wifi off >/dev/null 2>&1 || true

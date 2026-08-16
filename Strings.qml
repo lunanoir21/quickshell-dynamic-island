@@ -323,6 +323,10 @@ QtObject {
     readonly property string setHoverOpenDesc: tr
         ? "Kapalıyken mini kontroller ve tıklayarak açma kullanılır"
         : "When off, use compact controls and click to open"
+    readonly property string setChime: tr ? "Bitiş sesi çal" : "Play finish sound"
+    readonly property string setChimeDesc: tr ? "Zamanlayıcı, alarm veya odak bittiğinde ses çal" : "Play a sound when timer, alarm or focus ends"
+    readonly property string setChimeSound: tr ? "Bitiş sesi" : "Finish sound"
+    readonly property string setChimeSoundDesc: tr ? "Zamanlayıcı/alarm bittiğinde çalacak ses dosyası" : "Sound file to play when timer/alarm finishes"
 
     // Durations, written out rather than templated so a language that puts the
     // unit first (or drops the space) isn't forced into the Turkish shape.

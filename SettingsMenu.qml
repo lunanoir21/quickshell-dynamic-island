@@ -25,6 +25,23 @@ PanelWindow {
 
     readonly property var i18n: host.i18n
 
+    // Fixed colors (umbra theme) so settings menu doesn't change when theme changes
+    readonly property color fixedScrim: "#bd000000"
+    readonly property color fixedSurface: "#070707"
+    readonly property color fixedSurfaceAlt: "#171717"
+    readonly property color fixedText: "#f5f2ec"
+    readonly property color fixedSubtext: "#c1bdb5"
+    readonly property color fixedMuted: "#918d86"
+    readonly property color fixedLine: "#1cffffff"
+    readonly property color fixedLineStrong: "#32ffffff"
+    readonly property color fixedChip: "#14ffffff"
+    readonly property color fixedChipHover: "#29ffffff"
+    readonly property color fixedOn: "#eeeae2"
+    readonly property color fixedOnText: "#050505"
+    readonly property color fixedTrack: "#242424"
+    readonly property color fixedGrid: "#171717"
+    readonly property color fixedStatusAlert: "#c24a4e"
+
     // A deep link from the settingsSection IPC call. Consumed once and cleared,
     // so it steers this opening only and the next one still remembers where the
     // user actually was.
@@ -89,7 +106,7 @@ PanelWindow {
     Rectangle {
         anchors.fill: parent
         visible: opacity > 0.01
-        color: settingsWin.host.themeScrim
+        color: settingsWin.fixedScrim
         opacity: settingsWin.open ? 1 : 0
 
         MouseArea {
@@ -114,9 +131,9 @@ PanelWindow {
         height: Math.min(640, settingsWin.height - 32)
         radius: 28
         clip: true
-        color: settingsWin.host.themeSurface
+        color: settingsWin.fixedSurface
         border.width: 1
-        border.color: settingsWin.host.themeLine
+        border.color: settingsWin.fixedLine
         opacity: settingsWin.open ? 1 : 0
         scale: settingsWin.open ? 1 : 0.94
 
@@ -149,13 +166,13 @@ PanelWindow {
             Rectangle {
                 Layout.preferredWidth: 220
                 Layout.fillHeight: true
-                color: settingsWin.host.themeChip
+                color: settingsWin.fixedChip
 
                 Rectangle {
                     anchors.right: parent.right
                     width: 1
                     height: parent.height
-                    color: settingsWin.host.themeLine
+                    color: settingsWin.fixedLine
                 }
 
                 ColumnLayout {
@@ -174,12 +191,12 @@ PanelWindow {
                             Layout.preferredWidth: 36
                             Layout.preferredHeight: 36
                             radius: 11
-                            color: settingsWin.host.themeOn
+                            color: settingsWin.fixedOn
 
                             Text {
                                 anchors.centerIn: parent
                                 text: "󰀻"
-                                color: settingsWin.host.themeOnText
+                                color: settingsWin.fixedOnText
                                 font.family: settingsWin.host.iconFont
                                 font.pixelSize: 17
                             }
@@ -190,7 +207,7 @@ PanelWindow {
 
                             Text {
                                 text: "Dynamic Island"
-                                color: settingsWin.host.themeText
+                                color: settingsWin.fixedText
                                 font.family: settingsWin.host.uiFont
                                 font.weight: Font.Bold
                                 font.pixelSize: 15
@@ -198,7 +215,7 @@ PanelWindow {
 
                             Text {
                                 text: "quickshell"
-                                color: settingsWin.host.themeMuted
+                                color: settingsWin.fixedMuted
                                 font.family: settingsWin.host.uiFont
                                 font.pixelSize: 12
                             }
@@ -244,14 +261,14 @@ PanelWindow {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 1
                         Layout.bottomMargin: 10
-                        color: settingsWin.host.themeLine
+                        color: settingsWin.fixedLine
                     }
 
                     Text {
                         Layout.fillWidth: true
                         Layout.leftMargin: 6
                         text: "~/.config/quickshell"
-                        color: settingsWin.host.themeMuted
+                        color: settingsWin.fixedMuted
                         font.family: settingsWin.host.uiFont
                         font.pixelSize: 12
                         elide: Text.ElideMiddle
@@ -289,7 +306,7 @@ PanelWindow {
                                 default: return settingsWin.i18n.secAppearance
                                 }
                             }
-                            color: settingsWin.host.themeText
+                            color: settingsWin.fixedText
                             font.family: settingsWin.host.uiFont
                             font.weight: Font.Bold
                             font.pixelSize: 23
@@ -299,14 +316,14 @@ PanelWindow {
                             Layout.preferredWidth: 36
                             Layout.preferredHeight: 36
                             radius: 18
-                            color: closeHit.containsMouse ? settingsWin.host.themeStatusAlert
-                                                          : settingsWin.host.themeChip
+                            color: closeHit.containsMouse ? settingsWin.fixedStatusAlert
+                                                          : settingsWin.fixedChip
                             Behavior on color { ColorAnimation { duration: 140 } }
 
                             Text {
                                 anchors.centerIn: parent
                                 text: "󰅖"
-                                color: closeHit.containsMouse ? "#ffffff" : settingsWin.host.themeSubtext
+                                color: closeHit.containsMouse ? "#ffffff" : settingsWin.fixedSubtext
                                 font.family: settingsWin.host.iconFont
                                 font.pixelSize: 15
                                 Behavior on color { ColorAnimation { duration: 140 } }
@@ -334,7 +351,7 @@ PanelWindow {
                             default: return settingsWin.i18n.secAppearanceSub
                             }
                         }
-                        color: settingsWin.host.themeMuted
+                        color: settingsWin.fixedMuted
                         font.family: settingsWin.host.uiFont
                         font.pixelSize: 14
                     }
@@ -406,7 +423,7 @@ PanelWindow {
                                 Layout.fillWidth: true
                                 Layout.topMargin: 2
                                 text: settingsWin.i18n.setMediaSurfaceDesc
-                                color: settingsWin.host.themeMuted
+                                color: settingsWin.fixedMuted
                                 font.family: settingsWin.host.uiFont
                                 font.pixelSize: 13
                                 wrapMode: Text.WordWrap
@@ -721,7 +738,7 @@ PanelWindow {
                                 Layout.fillWidth: true
                                 Layout.topMargin: 2
                                 text: settingsWin.i18n.setAnimationIntensityDesc
-                                color: settingsWin.host.themeMuted
+                                color: settingsWin.fixedMuted
                                 font.family: settingsWin.host.uiFont
                                 font.pixelSize: 13
                                 wrapMode: Text.WordWrap
@@ -778,6 +795,32 @@ PanelWindow {
                                 checked: settingsWin.host.lockedOpen
                                 onToggled: settingsWin.host.lockedOpen = !settingsWin.host.lockedOpen
                             }
+
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰎈"
+                                label: settingsWin.i18n.setChime
+                                detail: settingsWin.i18n.setChimeDesc
+                                checked: settingsWin.host.timeChimeEnabled
+                                onToggled: {
+                                    settingsWin.host.timeChimeEnabled = !settingsWin.host.timeChimeEnabled
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            ChoiceRow {
+                                Layout.fillWidth: true
+                                icon: "󰕩"
+                                label: settingsWin.i18n.setChimeSound
+                                detail: settingsWin.i18n.setChimeSoundDesc
+                                options: ["timesup (eski)", "chime1 (klasik 3 bip)", "chime2 (hızlı 3 bip)", "chime3 (alçak 2 bip)", "chime4 (dijital 5 bip)", "chime5 (derin 2 bip)", "chime6 (basit ding)", "chime7 (ding-dong)", "chime8 (alarm 5 bip)", "chime9 (yumuşak artan)", "chime10 (modern telefon)"]
+                                values: ["timesup", "chime1", "chime2", "chime3", "chime4", "chime5", "chime6", "chime7", "chime8", "chime9", "chime10"]
+                                current: settingsWin.host.chimeSound
+                                onPicked: value => {
+                                    settingsWin.host.chimeSound = value
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
                         }
                     }
                 }
@@ -797,8 +840,8 @@ PanelWindow {
 
         implicitHeight: 42
         radius: 12
-        color: nav.active ? settingsWin.host.themeOn
-                          : (navHit.containsMouse ? settingsWin.host.themeChipHover : "transparent")
+        color: nav.active ? settingsWin.fixedOn
+                          : (navHit.containsMouse ? settingsWin.fixedChipHover : "transparent")
         Behavior on color { ColorAnimation { duration: 140 } }
 
         RowLayout {
@@ -811,7 +854,7 @@ PanelWindow {
                 Layout.preferredWidth: 3
                 Layout.preferredHeight: nav.active ? 20 : 8
                 radius: 2
-                color: nav.active ? settingsWin.host.themeOnText : "transparent"
+                color: nav.active ? settingsWin.fixedOnText : "transparent"
                 Behavior on Layout.preferredHeight {
                     NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
                 }
@@ -819,7 +862,7 @@ PanelWindow {
 
             Text {
                 text: nav.icon
-                color: nav.active ? settingsWin.host.themeOnText : settingsWin.host.themeSubtext
+                color: nav.active ? settingsWin.fixedOnText : settingsWin.fixedSubtext
                 font.family: settingsWin.host.iconFont
                 font.pixelSize: 16
                 Behavior on color { ColorAnimation { duration: 140 } }
@@ -828,7 +871,7 @@ PanelWindow {
             Text {
                 Layout.fillWidth: true
                 text: nav.label
-                color: nav.active ? settingsWin.host.themeOnText : settingsWin.host.themeSubtext
+                color: nav.active ? settingsWin.fixedOnText : settingsWin.fixedSubtext
                 font.family: settingsWin.host.uiFont
                 font.weight: nav.active ? Font.DemiBold : Font.Normal
                 font.pixelSize: 15
@@ -865,7 +908,7 @@ PanelWindow {
             Layout.topMargin: 4
             Layout.bottomMargin: group.note === "" ? 1 : 0
             text: group.label
-            color: settingsWin.host.themeMuted
+            color: settingsWin.fixedMuted
             font.family: settingsWin.host.uiFont
             font.weight: Font.Bold
             font.pixelSize: 12
@@ -884,7 +927,7 @@ PanelWindow {
             Layout.preferredHeight: contentHeight
             visible: group.note !== ""
             text: group.note
-            color: settingsWin.host.themeMuted
+            color: settingsWin.fixedMuted
             font.family: settingsWin.host.uiFont
             font.pixelSize: 12
             wrapMode: Text.WordWrap
@@ -914,8 +957,8 @@ PanelWindow {
 
         implicitHeight: 66
         radius: 16
-        color: (rowHit.containsMouse && enabled && !locked) ? settingsWin.host.themeChipHover
-                                                            : settingsWin.host.themeChip
+        color: (rowHit.containsMouse && enabled && !locked) ? settingsWin.fixedChipHover
+                                                            : settingsWin.fixedChip
         opacity: enabled ? 1 : 0.45
         Behavior on color { ColorAnimation { duration: 140 } }
         Behavior on opacity { NumberAnimation { duration: 140 } }
@@ -929,12 +972,12 @@ PanelWindow {
                 Layout.preferredWidth: 36
                 Layout.preferredHeight: 36
                 radius: 11
-                color: settingsWin.host.themeSurfaceAlt
+                color: settingsWin.fixedSurfaceAlt
 
                 Text {
                     anchors.centerIn: parent
                     text: row.icon
-                    color: settingsWin.host.themeSubtext
+                    color: settingsWin.fixedSubtext
                     font.family: settingsWin.host.iconFont
                     font.pixelSize: 16
                 }
@@ -947,7 +990,7 @@ PanelWindow {
                 Text {
                     Layout.fillWidth: true
                     text: row.label
-                    color: settingsWin.host.themeText
+                    color: settingsWin.fixedText
                     font.family: settingsWin.host.uiFont
                     font.pixelSize: 15
                     elide: Text.ElideRight
@@ -957,7 +1000,7 @@ PanelWindow {
                     Layout.fillWidth: true
                     visible: row.detail !== ""
                     text: row.detail
-                    color: settingsWin.host.themeMuted
+                    color: settingsWin.fixedMuted
                     font.family: settingsWin.host.uiFont
                     font.pixelSize: 13
                     elide: Text.ElideRight
@@ -1004,13 +1047,13 @@ PanelWindow {
         implicitHeight: 30
         radius: 15
         opacity: pill.dimmed ? 0.75 : 1
-        color: pill.on ? settingsWin.host.themeOn : settingsWin.host.themeSurfaceAlt
+        color: pill.on ? settingsWin.fixedOn : settingsWin.fixedSurfaceAlt
         Behavior on color { ColorAnimation { duration: 140 } }
 
         Text {
             anchors.centerIn: parent
             text: pill.on ? settingsWin.i18n.settingsOn : settingsWin.i18n.settingsOff
-            color: pill.on ? settingsWin.host.themeOnText : settingsWin.host.themeMuted
+            color: pill.on ? settingsWin.fixedOnText : settingsWin.fixedMuted
             font.family: settingsWin.host.uiFont
             font.weight: Font.Bold
             font.pixelSize: 10
@@ -1035,7 +1078,7 @@ PanelWindow {
 
         implicitHeight: 66
         radius: 16
-        color: settingsWin.host.themeChip
+        color: settingsWin.fixedChip
 
         RowLayout {
             anchors.fill: parent
@@ -1046,12 +1089,12 @@ PanelWindow {
                 Layout.preferredWidth: 36
                 Layout.preferredHeight: 36
                 radius: 11
-                color: settingsWin.host.themeSurfaceAlt
+                color: settingsWin.fixedSurfaceAlt
 
                 Text {
                     anchors.centerIn: parent
                     text: choice.icon
-                    color: settingsWin.host.themeSubtext
+                    color: settingsWin.fixedSubtext
                     font.family: settingsWin.host.iconFont
                     font.pixelSize: 16
                 }
@@ -1064,7 +1107,7 @@ PanelWindow {
                 Text {
                     Layout.fillWidth: true
                     text: choice.label
-                    color: settingsWin.host.themeText
+                    color: settingsWin.fixedText
                     font.family: settingsWin.host.uiFont
                     font.pixelSize: 15
                     elide: Text.ElideRight
@@ -1074,7 +1117,7 @@ PanelWindow {
                     Layout.fillWidth: true
                     visible: choice.detail !== ""
                     text: choice.detail
-                    color: settingsWin.host.themeMuted
+                    color: settingsWin.fixedMuted
                     font.family: settingsWin.host.uiFont
                     font.pixelSize: 13
                     elide: Text.ElideRight
@@ -1085,7 +1128,7 @@ PanelWindow {
                 Layout.preferredWidth: segRow.implicitWidth + 6
                 Layout.preferredHeight: 38
                 radius: 13
-                color: settingsWin.host.themeSurfaceAlt
+                color: settingsWin.fixedSurfaceAlt
 
                 RowLayout {
                     id: segRow
@@ -1104,15 +1147,15 @@ PanelWindow {
                             implicitWidth: segLabel.implicitWidth + 20
                             implicitHeight: 32
                             radius: 10
-                            color: seg.active ? settingsWin.host.themeOn
-                                              : (segHit.containsMouse ? settingsWin.host.themeChipHover : "transparent")
+                            color: seg.active ? settingsWin.fixedOn
+                                              : (segHit.containsMouse ? settingsWin.fixedChipHover : "transparent")
                             Behavior on color { ColorAnimation { duration: 140 } }
 
                             Text {
                                 id: segLabel
                                 anchors.centerIn: parent
                                 text: choice.options[seg.index]
-                                color: seg.active ? settingsWin.host.themeOnText : settingsWin.host.themeMuted
+                                color: seg.active ? settingsWin.fixedOnText : settingsWin.fixedMuted
                                 font.family: settingsWin.host.uiFont
                                 font.weight: Font.DemiBold
                                 font.pixelSize: 13
@@ -1137,7 +1180,7 @@ PanelWindow {
     component ThemePicker: Rectangle {
         implicitHeight: 112
         radius: 16
-        color: settingsWin.host.themeChip
+        color: settingsWin.fixedChip
 
         RowLayout {
             anchors.fill: parent
@@ -1164,9 +1207,9 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 11
-                    color: settingsWin.host.themeChipHover
+                    color: settingsWin.fixedChipHover
                     border.width: 1
-                    border.color: swatch.active ? settingsWin.host.themeText : "transparent"
+                    border.color: swatch.active ? settingsWin.fixedText : "transparent"
                     Behavior on border.color { ColorAnimation { duration: 140 } }
 
                     ColumnLayout {
@@ -1197,8 +1240,8 @@ PanelWindow {
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             text: swatch.displayLabel
-                            color: swatch.active ? settingsWin.host.themeText
-                                                 : settingsWin.host.themeMuted
+                            color: swatch.active ? settingsWin.fixedText
+                                                 : settingsWin.fixedMuted
                             font.family: settingsWin.host.uiFont
                             font.weight: Font.DemiBold
                             font.pixelSize: 12
@@ -1222,7 +1265,7 @@ PanelWindow {
     component ClockStylePicker: Rectangle {
         implicitHeight: 122
         radius: 16
-        color: settingsWin.host.themeChip
+        color: settingsWin.fixedChip
 
         RowLayout {
             anchors.fill: parent
@@ -1248,9 +1291,9 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 11
-                    color: settingsWin.host.themeChipHover
+                    color: settingsWin.fixedChipHover
                     border.width: 1
-                    border.color: styleOpt.active ? settingsWin.host.themeText : "transparent"
+                    border.color: styleOpt.active ? settingsWin.fixedText : "transparent"
                     Behavior on border.color { ColorAnimation { duration: 140 } }
 
                     ColumnLayout {
@@ -1274,8 +1317,8 @@ PanelWindow {
                                 showDate: false
                                 cell: 3
                                 gap: 1
-                                color: settingsWin.host.themeText
-                                mutedColor: settingsWin.host.themeMuted
+                                color: settingsWin.fixedText
+                                mutedColor: settingsWin.fixedMuted
                                 gridColor: "transparent"
                             }
                         }
@@ -1284,8 +1327,8 @@ PanelWindow {
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             text: styleOpt.displayLabel
-                            color: styleOpt.active ? settingsWin.host.themeText
-                                                   : settingsWin.host.themeMuted
+                            color: styleOpt.active ? settingsWin.fixedText
+                                                   : settingsWin.fixedMuted
                             font.family: settingsWin.host.uiFont
                             font.weight: Font.DemiBold
                             font.pixelSize: 12
@@ -1317,7 +1360,7 @@ PanelWindow {
 
         anchors.fill: parent
         radius: 8
-        color: settingsWin.host.themeSurfaceAlt
+        color: settingsWin.fixedSurfaceAlt
         clip: true
 
         Item {
@@ -1336,17 +1379,17 @@ PanelWindow {
             Rectangle {
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: 32; height: 3; radius: 1
-                color: settingsWin.host.themeTrack
+                color: settingsWin.fixedTrack
             }
             Rectangle {
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: 48; height: 4; radius: 2
-                color: settingsWin.host.themeOn
+                color: settingsWin.fixedOn
             }
             Rectangle {
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: 26; height: 3; radius: 1
-                color: settingsWin.host.themeTrack
+                color: settingsWin.fixedTrack
             }
         }
     }
@@ -1363,7 +1406,7 @@ PanelWindow {
                     width: 3
                     height: 4 + Math.abs(Math.sin(settingsWin.host.visualPhase + index * 0.7)) * 17
                     radius: 1
-                    color: settingsWin.host.themeOn
+                    color: settingsWin.fixedOn
                 }
             }
         }
@@ -1383,8 +1426,8 @@ PanelWindow {
             Column {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 3
-                Rectangle { width: 28; height: 4; radius: 2; color: settingsWin.host.themeOn }
-                Rectangle { width: 18; height: 3; radius: 1; color: settingsWin.host.themeTrack }
+                Rectangle { width: 28; height: 4; radius: 2; color: settingsWin.fixedOn }
+                Rectangle { width: 18; height: 3; radius: 1; color: settingsWin.fixedTrack }
             }
         }
     }
@@ -1393,7 +1436,7 @@ PanelWindow {
         Rectangle {
             anchors.centerIn: parent
             width: 60; height: 19; radius: 10
-            color: settingsWin.host.themeChipHover
+            color: settingsWin.fixedChipHover
 
             Row {
                 anchors.centerIn: parent
@@ -1401,17 +1444,17 @@ PanelWindow {
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 11; height: 11; radius: 3
-                    color: settingsWin.host.themeTrack
+                    color: settingsWin.fixedTrack
                 }
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 18; height: 3; radius: 1
-                    color: settingsWin.host.themeOn
+                    color: settingsWin.fixedOn
                 }
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 8; height: 8; radius: 4
-                    color: settingsWin.host.themeOn
+                    color: settingsWin.fixedOn
                 }
             }
         }
@@ -1423,7 +1466,7 @@ PanelWindow {
             width: 54; height: 22; radius: 8
             color: "transparent"
             border.width: 1
-            border.color: settingsWin.host.themeText
+            border.color: settingsWin.fixedText
         }
     }
 
@@ -1439,12 +1482,12 @@ PanelWindow {
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 7; height: 7; radius: 3
-                        color: settingsWin.host.themeTrack
+                        color: settingsWin.fixedTrack
                     }
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: [40, 26, 33][index]; height: 4; radius: 2
-                        color: settingsWin.host.themeOn
+                        color: settingsWin.fixedOn
                     }
                 }
             }
@@ -1463,12 +1506,12 @@ PanelWindow {
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 3; height: 3; radius: 1
-                        color: settingsWin.host.themeMuted
+                        color: settingsWin.fixedMuted
                     }
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: [44, 34, 39][index]; height: 4; radius: 2
-                        color: settingsWin.host.themeOn
+                        color: settingsWin.fixedOn
                     }
                 }
             }
@@ -1479,18 +1522,18 @@ PanelWindow {
         Column {
             anchors.centerIn: parent
             spacing: 4
-            Rectangle { width: 44; height: 4; radius: 2; color: settingsWin.host.themeOn }
+            Rectangle { width: 44; height: 4; radius: 2; color: settingsWin.fixedOn }
             Rectangle {
                 width: 54; height: 12; radius: 6
                 color: "transparent"
                 border.width: 1
-                border.color: settingsWin.host.themeMuted
+                border.color: settingsWin.fixedMuted
 
                 Rectangle {
                     x: 6
                     anchors.verticalCenter: parent.verticalCenter
                     width: 1; height: 6
-                    color: settingsWin.host.themeText
+                    color: settingsWin.fixedText
                 }
             }
         }
@@ -1503,13 +1546,13 @@ PanelWindow {
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 17; height: 17; radius: 5
-                color: settingsWin.host.themeOn
+                color: settingsWin.fixedOn
             }
             Column {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 3
-                Rectangle { width: 32; height: 4; radius: 2; color: settingsWin.host.themeOn }
-                Rectangle { width: 22; height: 3; radius: 1; color: settingsWin.host.themeTrack }
+                Rectangle { width: 32; height: 4; radius: 2; color: settingsWin.fixedOn }
+                Rectangle { width: 22; height: 3; radius: 1; color: settingsWin.fixedTrack }
             }
         }
     }
@@ -1522,12 +1565,12 @@ PanelWindow {
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 17; height: 17; radius: 9
-                color: settingsWin.host.themeTrack
+                color: settingsWin.fixedTrack
             }
             Column {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 4
-                Rectangle { width: 30; height: 4; radius: 2; color: settingsWin.host.themeOn }
+                Rectangle { width: 30; height: 4; radius: 2; color: settingsWin.fixedOn }
                 Row {
                     spacing: 4
                     Rectangle { width: 15; height: 7; radius: 3; color: "#65d58a" }
@@ -1573,8 +1616,8 @@ PanelWindow {
             showDate: false
             cell: 2
             gap: 1
-            color: settingsWin.host.themeText
-            mutedColor: settingsWin.host.themeMuted
+            color: settingsWin.fixedText
+            mutedColor: settingsWin.fixedMuted
             gridColor: "transparent"
         }
     }
@@ -1593,26 +1636,26 @@ PanelWindow {
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 11; height: 16; radius: 2
-                    color: settingsWin.host.themeText
+                    color: settingsWin.fixedText
                 }
             }
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 3; height: 3; radius: 1
-                color: settingsWin.host.themeMuted
+                color: settingsWin.fixedMuted
             }
             Repeater {
                 model: 2
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 11; height: 16; radius: 2
-                    color: settingsWin.host.themeText
+                    color: settingsWin.fixedText
                 }
             }
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 3; height: 3; radius: 1
-                color: settingsWin.host.themeMuted
+                color: settingsWin.fixedMuted
             }
             // The seconds sit smaller and dimmer beside the clock, which is
             // exactly how the island draws them.
@@ -1621,7 +1664,7 @@ PanelWindow {
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 8; height: 11; radius: 2
-                    color: settingsWin.host.themeMuted
+                    color: settingsWin.fixedMuted
                 }
             }
         }
@@ -1641,20 +1684,20 @@ PanelWindow {
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 11; height: 15; radius: 2
-                        color: settingsWin.host.themeText
+                        color: settingsWin.fixedText
                     }
                 }
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 3; height: 3; radius: 1
-                    color: settingsWin.host.themeMuted
+                    color: settingsWin.fixedMuted
                 }
                 Repeater {
                     model: 2
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 11; height: 15; radius: 2
-                        color: settingsWin.host.themeText
+                        color: settingsWin.fixedText
                     }
                 }
             }
@@ -1663,7 +1706,7 @@ PanelWindow {
             Rectangle {
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: 50; height: 3; radius: 1
-                color: settingsWin.host.themeMuted
+                color: settingsWin.fixedMuted
             }
         }
     }
@@ -1680,9 +1723,9 @@ PanelWindow {
             showDate: false
             cell: 2
             gap: 1
-            color: settingsWin.host.themeText
-            mutedColor: settingsWin.host.themeMuted
-            gridColor: settingsWin.host.clockGrid ? settingsWin.host.themeGrid : "transparent"
+            color: settingsWin.fixedText
+            mutedColor: settingsWin.fixedMuted
+            gridColor: settingsWin.host.clockGrid ? settingsWin.fixedGrid : "transparent"
         }
     }
 
@@ -1696,14 +1739,14 @@ PanelWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: 0
                 width: 58; height: 13; radius: 6
-                color: settingsWin.host.themeChipHover
+                color: settingsWin.fixedChipHover
             }
             // The pointer arriving from below is what opens it.
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: 12
                 text: "󰆾"
-                color: settingsWin.host.themeOn
+                color: settingsWin.fixedOn
                 font.family: settingsWin.host.iconFont
                 font.pixelSize: 12
             }
@@ -1715,7 +1758,7 @@ PanelWindow {
     component SurfacePicker: Rectangle {
         implicitHeight: 112
         radius: 16
-        color: settingsWin.host.themeChip
+        color: settingsWin.fixedChip
 
         RowLayout {
             anchors.fill: parent
@@ -1734,9 +1777,9 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 11
-                    color: settingsWin.host.themeChipHover
+                    color: settingsWin.fixedChipHover
                     border.width: 1
-                    border.color: surfOpt.active ? settingsWin.host.themeText : "transparent"
+                    border.color: surfOpt.active ? settingsWin.fixedText : "transparent"
                     Behavior on border.color { ColorAnimation { duration: 140 } }
 
                     ColumnLayout {
@@ -1749,9 +1792,9 @@ PanelWindow {
                             Layout.fillHeight: true
                             radius: 8
                             color: surfOpt.modelData === "dark" ? "#000000"
-                                                                : settingsWin.host.themeSurface
+                                                                : settingsWin.fixedSurface
                             border.width: 1
-                            border.color: settingsWin.host.themeLine
+                            border.color: settingsWin.fixedLine
 
                             Row {
                                 anchors.centerIn: parent
@@ -1770,12 +1813,12 @@ PanelWindow {
                                     Rectangle {
                                         width: 30; height: 4; radius: 2
                                         color: surfOpt.modelData === "dark" ? "#ededed"
-                                                                            : settingsWin.host.themeText
+                                                                            : settingsWin.fixedText
                                     }
                                     Rectangle {
                                         width: 20; height: 3; radius: 1
                                         color: surfOpt.modelData === "dark" ? "#7f7f7f"
-                                                                            : settingsWin.host.themeMuted
+                                                                            : settingsWin.fixedMuted
                                     }
                                 }
                             }
@@ -1786,8 +1829,8 @@ PanelWindow {
                             horizontalAlignment: Text.AlignHCenter
                             text: surfOpt.modelData === "dark" ? settingsWin.i18n.mediaSurfaceDark
                                                                : settingsWin.i18n.mediaSurfaceTheme
-                            color: surfOpt.active ? settingsWin.host.themeText
-                                                  : settingsWin.host.themeMuted
+                            color: surfOpt.active ? settingsWin.fixedText
+                                                  : settingsWin.fixedMuted
                             font.family: settingsWin.host.uiFont
                             font.weight: Font.DemiBold
                             font.pixelSize: 12
@@ -1813,7 +1856,7 @@ PanelWindow {
     component IntensityPicker: Rectangle {
         implicitHeight: 112
         radius: 16
-        color: settingsWin.host.themeChip
+        color: settingsWin.fixedChip
 
         RowLayout {
             anchors.fill: parent
@@ -1839,9 +1882,9 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 11
-                    color: settingsWin.host.themeChipHover
+                    color: settingsWin.fixedChipHover
                     border.width: 1
-                    border.color: intOpt.active ? settingsWin.host.themeText : "transparent"
+                    border.color: intOpt.active ? settingsWin.fixedText : "transparent"
                     Behavior on border.color { ColorAnimation { duration: 140 } }
 
                     ColumnLayout {
@@ -1868,7 +1911,7 @@ PanelWindow {
                                         height: 5 + Math.abs(Math.sin(
                                             settingsWin.host.visualPhase + index * 0.72)) * 30
                                         radius: 2
-                                        color: settingsWin.host.themeText
+                                        color: settingsWin.fixedText
                                         opacity: intOpt.modelData / 100
                                     }
                                 }
@@ -1879,8 +1922,8 @@ PanelWindow {
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             text: intOpt.displayLabel
-                            color: intOpt.active ? settingsWin.host.themeText
-                                                 : settingsWin.host.themeMuted
+                            color: intOpt.active ? settingsWin.fixedText
+                                                 : settingsWin.fixedMuted
                             font.family: settingsWin.host.uiFont
                             font.weight: Font.DemiBold
                             font.pixelSize: 12
@@ -1906,7 +1949,7 @@ PanelWindow {
     component PlayerSwitcherPicker: Rectangle {
         implicitHeight: 118
         radius: 16
-        color: settingsWin.host.themeChip
+        color: settingsWin.fixedChip
 
         RowLayout {
             anchors.fill: parent
@@ -1932,9 +1975,9 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 11
-                    color: settingsWin.host.themeChipHover
+                    color: settingsWin.fixedChipHover
                     border.width: 1
-                    border.color: swOpt.active ? settingsWin.host.themeText : "transparent"
+                    border.color: swOpt.active ? settingsWin.fixedText : "transparent"
                     Behavior on border.color { ColorAnimation { duration: 140 } }
 
                     ColumnLayout {
@@ -1953,11 +1996,11 @@ PanelWindow {
                                 spacing: 3
                                 Rectangle {
                                     width: 30; height: 13; radius: 4
-                                    color: settingsWin.host.themeOn
+                                    color: settingsWin.fixedOn
                                 }
                                 Rectangle {
                                     width: 30; height: 13; radius: 4
-                                    color: settingsWin.host.themeTrack
+                                    color: settingsWin.fixedTrack
                                 }
                             }
 
@@ -1967,17 +2010,17 @@ PanelWindow {
                                 spacing: 7
                                 Rectangle {
                                     width: 15; height: 15; radius: 8
-                                    color: settingsWin.host.themeOn
+                                    color: settingsWin.fixedOn
                                     border.width: 1
-                                    border.color: settingsWin.host.themeText
+                                    border.color: settingsWin.fixedText
                                 }
                                 Rectangle {
                                     width: 15; height: 15; radius: 8
-                                    color: settingsWin.host.themeTrack
+                                    color: settingsWin.fixedTrack
                                 }
                                 Rectangle {
                                     width: 15; height: 15; radius: 8
-                                    color: settingsWin.host.themeTrack
+                                    color: settingsWin.fixedTrack
                                 }
                             }
 
@@ -1985,14 +2028,14 @@ PanelWindow {
                                 anchors.centerIn: parent
                                 visible: swOpt.modelData === "segment"
                                 width: 68; height: 19; radius: 6
-                                color: settingsWin.host.themeTrack
+                                color: settingsWin.fixedTrack
 
                                 Row {
                                     anchors.centerIn: parent
                                     spacing: 2
                                     Rectangle {
                                         width: 31; height: 15; radius: 5
-                                        color: settingsWin.host.themeOn
+                                        color: settingsWin.fixedOn
                                     }
                                     Rectangle {
                                         width: 31; height: 15; radius: 5
@@ -2006,8 +2049,8 @@ PanelWindow {
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             text: swOpt.displayLabel
-                            color: swOpt.active ? settingsWin.host.themeText
-                                                : settingsWin.host.themeMuted
+                            color: swOpt.active ? settingsWin.fixedText
+                                                : settingsWin.fixedMuted
                             font.family: settingsWin.host.uiFont
                             font.weight: Font.DemiBold
                             font.pixelSize: 12
@@ -2038,7 +2081,7 @@ PanelWindow {
 
         implicitHeight: 118
         radius: 16
-        color: settingsWin.host.themeChip
+        color: settingsWin.fixedChip
         opacity: queuePicker.dimmed ? 0.4 : 1
         enabled: !queuePicker.dimmed
         Behavior on opacity { NumberAnimation { duration: 160 } }
@@ -2067,9 +2110,9 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 11
-                    color: settingsWin.host.themeChipHover
+                    color: settingsWin.fixedChipHover
                     border.width: 1
-                    border.color: qOpt.active ? settingsWin.host.themeText : "transparent"
+                    border.color: qOpt.active ? settingsWin.fixedText : "transparent"
                     Behavior on border.color { ColorAnimation { duration: 140 } }
 
                     ColumnLayout {
@@ -2094,17 +2137,17 @@ PanelWindow {
                                         Rectangle {
                                             anchors.verticalCenter: parent.verticalCenter
                                             width: 4; height: 4; radius: 1
-                                            color: settingsWin.host.themeMuted
+                                            color: settingsWin.fixedMuted
                                         }
                                         Column {
                                             spacing: 2
                                             Rectangle {
                                                 width: 36; height: 3; radius: 1
-                                                color: settingsWin.host.themeOn
+                                                color: settingsWin.fixedOn
                                             }
                                             Rectangle {
                                                 width: 24; height: 2; radius: 1
-                                                color: settingsWin.host.themeTrack
+                                                color: settingsWin.fixedTrack
                                             }
                                         }
                                     }
@@ -2122,11 +2165,11 @@ PanelWindow {
                                         spacing: 3
                                         Rectangle {
                                             width: 21; height: 21; radius: 5
-                                            color: settingsWin.host.themeTrack
+                                            color: settingsWin.fixedTrack
                                         }
                                         Rectangle {
                                             width: 21; height: 3; radius: 1
-                                            color: settingsWin.host.themeOn
+                                            color: settingsWin.fixedOn
                                         }
                                     }
                                 }
@@ -2144,19 +2187,19 @@ PanelWindow {
                                         Rectangle {
                                             anchors.verticalCenter: parent.verticalCenter
                                             width: 14; height: 3; radius: 1
-                                            color: settingsWin.host.themeTrack
+                                            color: settingsWin.fixedTrack
                                         }
                                         // The knots lining up down the column is
                                         // what reads as the rail at this size.
                                         Rectangle {
                                             anchors.verticalCenter: parent.verticalCenter
                                             width: 5; height: 5; radius: 3
-                                            color: settingsWin.host.themeMuted
+                                            color: settingsWin.fixedMuted
                                         }
                                         Rectangle {
                                             anchors.verticalCenter: parent.verticalCenter
                                             width: 30; height: 3; radius: 1
-                                            color: settingsWin.host.themeOn
+                                            color: settingsWin.fixedOn
                                         }
                                     }
                                 }
@@ -2167,8 +2210,8 @@ PanelWindow {
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             text: qOpt.displayLabel
-                            color: qOpt.active ? settingsWin.host.themeText
-                                               : settingsWin.host.themeMuted
+                            color: qOpt.active ? settingsWin.fixedText
+                                               : settingsWin.fixedMuted
                             font.family: settingsWin.host.uiFont
                             font.weight: Font.DemiBold
                             font.pixelSize: 12
@@ -2194,7 +2237,7 @@ PanelWindow {
     component AnimationStylePicker: Rectangle {
         implicitHeight: 118
         radius: 16
-        color: settingsWin.host.themeChip
+        color: settingsWin.fixedChip
 
         RowLayout {
             anchors.fill: parent
@@ -2220,9 +2263,9 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 11
-                    color: settingsWin.host.themeChipHover
+                    color: settingsWin.fixedChipHover
                     border.width: 1
-                    border.color: previewOpt.active ? settingsWin.host.themeText : "transparent"
+                    border.color: previewOpt.active ? settingsWin.fixedText : "transparent"
                     Behavior on border.color { ColorAnimation { duration: 140 } }
 
                     ColumnLayout {
@@ -2260,7 +2303,7 @@ PanelWindow {
                                         height: 5 + amount * 34
                                         radius: 2
                                         anchors.verticalCenter: parent.verticalCenter
-                                        color: settingsWin.host.themeText
+                                        color: settingsWin.fixedText
                                         opacity: settingsWin.host.mediaAnimationIntensity / 100
                                     }
                                 }
@@ -2271,7 +2314,7 @@ PanelWindow {
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
                             text: previewOpt.displayLabel
-                            color: previewOpt.active ? settingsWin.host.themeText : settingsWin.host.themeMuted
+                            color: previewOpt.active ? settingsWin.fixedText : settingsWin.fixedMuted
                             font.family: settingsWin.host.uiFont
                             font.weight: Font.DemiBold
                             font.pixelSize: 12

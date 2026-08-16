@@ -458,7 +458,8 @@ PanelWindow {
             queueEnabled: window.queueEnabled,
             playerSwitcherStyle: window.playerSwitcherStyle,
             queueStyle: window.queueStyle,
-            timeChimeEnabled: window.timeChimeEnabled
+            timeChimeEnabled: window.timeChimeEnabled,
+            chimeSound: window.chimeSound
         }, null, 2) + "\n")
     }
 
@@ -517,6 +518,8 @@ PanelWindow {
             window.queueStyle = readChoice(p, "queueStyle",
                 ["list", "covers", "timeline"], window.queueStyle)
             window.timeChimeEnabled = readBool(p, "timeChimeEnabled", window.timeChimeEnabled)
+            window.chimeSound = readChoice(p, "chimeSound",
+                ["timesup", "chime1", "chime2", "chime3", "chime4", "chime5", "chime6", "chime7", "chime8", "chime9", "chime10"], window.chimeSound)
         } catch (error) { /* missing or corrupt on first run — defaults stand */ }
     }
 
@@ -739,8 +742,10 @@ PanelWindow {
     // nobody asked for one is the kind of thing that has to stay off once it
     // has been turned off.
     property bool timeChimeEnabled: true
+    property string chimeSound: "timesup"
     property bool timeAlertVisible: false
     property bool timeAlertArmed: false
+    property bool timeAlertPulse: false
     property string timeAlertKind: ""
     property string timeAlertTitle: ""
     property string timeAlertDetail: ""
@@ -868,7 +873,7 @@ PanelWindow {
         return false
     }
     readonly property color timeAccent: timeAlertVisible
-        ? themeStatusAlert
+        ? (timeAlertPulse ? Qt.rgba(themeStatusAlert.r, themeStatusAlert.g, themeStatusAlert.b, 0.5 + Math.abs(Math.sin(visualPhase * 3)) * 0.5) : themeStatusAlert)
         : (timeUrgent ? themeStatusWarn : (timeModeRunning ? themeStatusLive : themeMuted))
 
     function timeModeLabel(mode) {
@@ -1049,7 +1054,7 @@ PanelWindow {
     function raiseTimeAlert(kind, icon, title, detail) {
         // The chime plays either way. Under a fullscreen window the card can't
         // be drawn at all, which is exactly when being audible matters most.
-        if (window.timeChimeEnabled) window.run(["chime"])
+        if (window.timeChimeEnabled) window.run(["chime", window.chimeSound])
         if (window.fullscreenActive) {
             window.runDirect(["notify-send", "-u", "critical", title, detail])
             return
@@ -1061,6 +1066,13 @@ PanelWindow {
         window.notificationVisible = false
         window.deviceEventVisible = false
         window.timeAlertVisible = true
+        window.timeAlertPulse = true
+        timeAlertPulseTimer.restart()
+        // If the island is collapsed, briefly expand it to show the alert
+        if (!window.expanded && !window.lockedOpen) {
+            window.lockedOpen = true
+            alertExpandTimer.restart()
+        }
         // The card arrives under wherever the pointer already is, and the
         // island shrinking to alert size hands that pointer straight to the
         // card's own dismiss target — which used to swallow the alert within a
@@ -1082,8 +1094,12 @@ PanelWindow {
     function dismissTimeAlert() {
         window.timeAlertVisible = false
         window.timeAlertArmed = false
+        window.timeAlertPulse = false
         timeAlertArming.stop()
         timeAlertTimeout.stop()
+        timeAlertPulseTimer.stop()
+        alertExpandTimer.stop()
+        window.run(["chime-stop"])
     }
 
     function calendarMonthName(month) {
@@ -1456,6 +1472,18 @@ PanelWindow {
         id: timeAlertArming
         interval: 620
         onTriggered: window.timeAlertArmed = true
+    }
+
+    Timer {
+        id: timeAlertPulseTimer
+        interval: 2000
+        onTriggered: window.timeAlertPulse = false
+    }
+
+    Timer {
+        id: alertExpandTimer
+        interval: 5000
+        onTriggered: if (!window.hovering && !window.lockedOpen) window.lockedOpen = false
     }
 
     function run(args) {
@@ -2010,8 +2038,11 @@ PanelWindow {
         // all four themes, so tying it to themeText would erase the signal.
         readonly property bool ringPulseActive: window.callPulseRing
             && (window.callRinging || window.callAnswering)
-        border.width: ringPulseActive ? 1 : 0
-        border.color: Qt.rgba(0.35, 0.86, 0.55, 0.4 + Math.abs(Math.sin(window.visualPhase)) * 0.35)
+        readonly property bool alertPulseActive: window.timeAlertPulse
+        border.width: ringPulseActive || alertPulseActive ? 2 : 0
+        border.color: alertPulseActive
+            ? Qt.rgba(themeStatusAlert.r, themeStatusAlert.g, themeStatusAlert.b, 0.5 + Math.abs(Math.sin(window.visualPhase * 4)) * 0.5)
+            : (ringPulseActive ? Qt.rgba(0.35, 0.86, 0.55, 0.4 + Math.abs(Math.sin(window.visualPhase)) * 0.35) : "transparent")
 
         color: window.themeIslandFill
 
@@ -3618,11 +3649,16 @@ PanelWindow {
                 // whole window, so any translucency here shows the album art
                 // and meters straight through the readout.
                 Rectangle {
+                    id: collapsedBg
                     anchors.fill: parent
                     radius: 30
                     color: Qt.rgba(window.themeIslandFill.r,
                                    window.themeIslandFill.g,
                                    window.themeIslandFill.b, 1)
+                    border.width: window.timeAlertPulse ? 2 : 0
+                    border.color: window.timeAlertPulse
+                        ? Qt.rgba(window.themeStatusAlert.r, window.themeStatusAlert.g, window.themeStatusAlert.b, 0.5 + Math.abs(Math.sin(window.visualPhase * 4)) * 0.5)
+                        : "transparent"
                 }
                 MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons }
 
