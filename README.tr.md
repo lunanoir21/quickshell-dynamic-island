@@ -20,6 +20,21 @@ göstergeleri, temalar ve pixel-art saat; uyarlanabilir tek bir katmanda.
 
 ---
 
+## Tanıtım
+
+<div align="center">
+
+<video src="https://github.com/lunanoir21/quickshell-dynamic-island/raw/main/docs/demo.mp4" controls muted playsinline width="720" poster="https://raw.githubusercontent.com/lunanoir21/quickshell-dynamic-island/main/docs/cover.png">
+</video>
+
+Sırasıyla her yüzey — pill, panel, saat, dört zaman aracı, bir bildirim, gelen
+arama, cihaz göstergeleri ve tema değiştiren ayarlar penceresi.
+[Sitede izle →](https://lunanoir21.github.io/quickshell-dynamic-island/#tour)
+
+</div>
+
+---
+
 ## Nedir
 
 Ekranın üst kenarına sabitlenmiş, her zaman üstte duran tek bir yüzey. Kapalıyken
@@ -55,20 +70,23 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 
 ## Neler değişti
 
+**Kayan ayarlar, ve gri olmayan üç tema** — ayarlar penceresi okunaklıydı ama
+durağandı; her yeni duruma kesip geçiyordu. Artık ne yaptığını canlandırıyor —
+seçim kayıyor, anahtarlar kayıyor, bölümler belirerek açılıyor — ve sonunda
+seçmek için kullanıldığı temayı kendisi de takip ediyor. Gold, Amber ve Red,
+dört nötr temaya katılıyor.
+
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/time-tools.png" alt="Zaman araçları sayfası"><br><sub><b>Zaman araçları, yeniden</b> — dört modlu tek enstrüman; okuma saatle aynı 5×7 matriste çiziliyor</sub></td>
-<td width="50%"><img src="docs/screenshots/time-capsule.png" alt="Kapalı hapta çalışan zamanlayıcı"><br><sub><b>Kapalıyken de görünür</b> — çalışan araç hapta bir kapsül bırakır: boşalan çizgi ve sıfıra yaklaşınca hızlanan ışık</sub></td>
+<td colspan="2"><img src="docs/screenshots/changelog/themes.png" alt="Amber temasında ayarlar penceresinin Görünüm bölümü, ızgara halinde yedi tema kartı"><br><sub><b>Yedi tema, temalarıyla gösteriliyor</b> — her kart kendi renkleriyle küçültülmüş bir ada çiziyor, ve çevresindeki pencere de o temayı giyiyor</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/screenshots/changelog/mini-player.png" alt="Yalnız oynatıcı gösteren kapalı ada"><br><sub><b>Mini oynatıcı</b> — canlı ses alanı üzerinde kapak, başlık, önceki/oynat/sonraki ve kalan süre çizgisi</sub></td>
-<td width="50%"><img src="docs/screenshots/changelog/hover-setting.png" alt="Üzerine gelince aç ayarı"><br><sub><b>Etkileşimi seç</b> — hover ile aç veya kapalı tutup tam panel gerektiğinde tıkla</sub></td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/changelog/animation-settings.png" alt="Animasyon ve mini oynatıcı ayarları"><br><sub><b>Ayarlanabilir hareket</b> — Dalga, Canlı ve Sakin; ayrıca Hafif/Dengeli/Belirgin görünürlük</sub></td>
-<td><img src="docs/screenshots/changelog/media-animation.png" alt="Temayı izleyen açık medya paneli"><br><sub><b>Kararlı temalar</b> — Siyah, Umbra, Gri ve Beyaz artık kontrastı koruyarak oynatıcıya da uygulanıyor</sub></td>
+<td width="50%"><img src="docs/screenshots/changelog/chime-test.png" alt="Bir satıra sarılmış on bir melodi çipiyle zaman araçları ayarları"><br><sub><b>On bir melodi, hepsine erişilebilir</b> — eski seçici yedinci sesten sonra kenardan taşıyordu; artık seçince çalıyor</sub></td>
+<td width="50%"><img src="docs/screenshots/changelog/settings-switches.png" alt="Kayan anahtarlar ve segmentli süre seçiciyle bildirim ayarları"><br><sub><b>Kayan anahtarlar</b> — konum ve dolgu açık/kapalı diyor, süre seçici de tek bir vurguyu kaydırıyor</sub></td>
 </tr>
 </table>
+
+[Tüm değişiklik günlüğü →](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
 
 ## Özellikler
 

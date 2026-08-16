@@ -20,6 +20,21 @@ indicators, themes and a pixel-art clock in one adaptive overlay.
 
 ---
 
+## Tour
+
+<div align="center">
+
+<video src="https://github.com/lunanoir21/quickshell-dynamic-island/raw/main/docs/demo.mp4" controls muted playsinline width="720" poster="https://raw.githubusercontent.com/lunanoir21/quickshell-dynamic-island/main/docs/cover.png">
+</video>
+
+Every surface in order — the pill, the panel, the clock, the four time tools, a
+notification, an incoming call, the device indicators and the settings window
+changing theme. [Watch it on the site →](https://lunanoir21.github.io/quickshell-dynamic-island/#tour)
+
+</div>
+
+---
+
 ## What it is
 
 A single always-on-top surface pinned to the top edge of the screen. Collapsed
@@ -55,20 +70,23 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 
 ## What changed
 
+**Settings that move, and three themes that are not grey** — the settings
+window was legible but static, cutting to every new state. It now animates
+what it's doing — the selection slides, switches slide, sections fade in —
+and finally follows the theme it's used to pick. Gold, Amber and Red join the
+four neutrals.
+
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/time-tools.png" alt="Time tools page"><br><sub><b>Time tools, rebuilt</b> — one instrument with four modes, the readout drawn in the same 5×7 matrix as the clock</sub></td>
-<td width="50%"><img src="docs/screenshots/time-capsule.png" alt="Running timer on the collapsed pill"><br><sub><b>Visible while closed</b> — a running tool keeps a capsule on the pill, with a drain line and a sweep that quickens near zero</sub></td>
+<td colspan="2"><img src="docs/screenshots/changelog/themes.png" alt="The Appearance section of the settings window in the Amber theme, showing seven theme cards in a grid"><br><sub><b>Seven themes, shown as themes</b> — each card draws a shrunken island in that theme's own colours, and the window around it wears the theme too</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/screenshots/changelog/mini-player.png" alt="Player-only collapsed mode"><br><sub><b>Mini player</b> — cover, title, previous/play/next and a remaining-time track over the live audio field</sub></td>
-<td width="50%"><img src="docs/screenshots/changelog/hover-setting.png" alt="Open on hover setting"><br><sub><b>Choose the interaction</b> — hover to open, or leave it closed and click when the full panel is wanted</sub></td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/changelog/animation-settings.png" alt="Animation and mini player settings"><br><sub><b>Tunable motion</b> — Wave, Live and Calm, plus Soft/Balanced/Bold visibility</sub></td>
-<td><img src="docs/screenshots/changelog/media-animation.png" alt="Expanded themed media panel"><br><sub><b>Stable themes</b> — Black, Umbra, Gray and White now carry through the player with contrast-safe text</sub></td>
+<td width="50%"><img src="docs/screenshots/changelog/chime-test.png" alt="The time tools settings section with eleven chime chips wrapped onto one row"><br><sub><b>Eleven chimes, all reachable</b> — the picker used to run off the edge past the seventh sound; picking one now plays it</sub></td>
+<td width="50%"><img src="docs/screenshots/changelog/settings-switches.png" alt="Notification settings rows with sliding toggle switches and a segmented duration picker"><br><sub><b>Switches that slide</b> — position and fill say on or off, and the duration picker slides one highlight</sub></td>
 </tr>
 </table>
+
+[Full changelog →](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
 
 ## Features
 
