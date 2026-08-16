@@ -8,7 +8,7 @@ Hyprland ve Quickshell için ayarlanabilir bir Dynamic Island masaüstü widget'
 MPRIS medya oynatıcı, CAVA ses görselleştirici, bildirimler, gizlilik
 göstergeleri, temalar ve pixel-art saat; uyarlanabilir tek bir katmanda.
 
-[![Sürüm](https://img.shields.io/badge/Sürüm-2026.08.16-111111?style=flat-square)](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
+[![Sürüm](https://img.shields.io/badge/Sürüm-v1.0.0-111111?style=flat-square)](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
 [![Quickshell](https://img.shields.io/badge/Quickshell-0.3%2B-111111?style=flat-square)](https://quickshell.outfoxxed.me/)
 [![Hyprland](https://img.shields.io/badge/Hyprland-wlroots-111111?style=flat-square)](https://hyprland.org/)
 [![Lisans](https://img.shields.io/badge/Lisans-MIT-111111?style=flat-square)](LICENSE)

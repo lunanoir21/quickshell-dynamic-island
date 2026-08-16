@@ -8,7 +8,7 @@ A configurable Dynamic Island desktop widget for Hyprland and Quickshell — an
 MPRIS media player with a CAVA audio visualizer, notifications, privacy
 indicators, themes and a pixel-art clock in one adaptive overlay.
 
-[![Version](https://img.shields.io/badge/Version-2026.08.16-111111?style=flat-square)](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
+[![Version](https://img.shields.io/badge/Version-v1.0.0-111111?style=flat-square)](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
 [![Quickshell](https://img.shields.io/badge/Quickshell-0.3%2B-111111?style=flat-square)](https://quickshell.outfoxxed.me/)
 [![Hyprland](https://img.shields.io/badge/Hyprland-wlroots-111111?style=flat-square)](https://hyprland.org/)
 [![License](https://img.shields.io/badge/License-MIT-111111?style=flat-square)](LICENSE)
