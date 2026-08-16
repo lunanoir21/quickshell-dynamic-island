@@ -151,8 +151,7 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
   grabs the message body straight to the clipboard via `wl-copy`.
 - **Meters** — volume, brightness and microphone gain as draggable segment bars
   (`wpctl` / `brightnessctl`).
-- **Weather and battery** — Open-Meteo with IP geolocation, cached for 15 minutes;
-  battery level, charge state and time-to-empty from sysfs and UPower. The
+- **Battery** — level, charge state and time-to-empty from sysfs and UPower. The
   level reading is colour-coded (green ≥50%, yellow 20–49%, red <20%), charging
   gets a slow breathing pulse, and a critical card pops up on the crossing into
   red while unplugged.
@@ -164,7 +163,7 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 | | |
 | --- | --- |
 | **Required** | [Quickshell](https://quickshell.outfoxxed.me/) 0.3+, Hyprland (or another wlroots compositor with layer-shell), `jq`, a Nerd Font |
-| **Optional** | `playerctl` (media), `wpctl` + `pactl` (audio, mic detection, call detection), `brightnessctl`, `cava` (spectrum), `bluetoothctl`, `upower`, `curl` (weather, lyrics, and quality-checked cached thumbnails for browser tabs), `fuser` (camera detection), `pw-play`/`paplay`/`aplay` or `canberra-gtk-play` (timer chime) |
+| **Optional** | `playerctl` (media), `wpctl` + `pactl` (audio, mic detection, call detection), `brightnessctl`, `cava` (spectrum), `bluetoothctl`, `upower`, `curl` (lyrics, and quality-checked cached thumbnails for browser tabs), `fuser` (camera detection), `pw-play`/`paplay`/`aplay` or `canberra-gtk-play` (timer chime) |
 
 Anything missing simply leaves its section empty or falls back — nothing hard-fails.
 
@@ -437,7 +436,7 @@ the island, not in `backend.sh`. See
 [Calls and inline reply](#calls-and-inline-reply) above.
 
 `backend.sh snapshot` emits the entire UI state as one JSON object. Costly work
-(weather, bluetooth, UPower, camera detection) is refreshed in a locked
+(bluetooth, UPower, camera detection) is refreshed in a locked
 background job and read from cache, so a poll never blocks on it. Playback
 position is interpolated locally between polls and resynced when it drifts, so
 the progress bar moves smoothly rather than stepping.

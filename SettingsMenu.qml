@@ -21,26 +21,77 @@ PanelWindow {
     property bool open: false
     property string section: "appearance"
 
+    // Shared by the sliding nav indicator and by keyboard navigation, so both
+    // move through sections in the same order the sidebar lists them in.
+    readonly property var navOrder: ["appearance", "clock", "timetools", "media", "calls", "notifications", "panels", "general"]
+    readonly property int sectionIndex: navOrder.indexOf(section)
+    function moveSection(delta) {
+        var idx = navOrder.indexOf(settingsWin.section)
+        settingsWin.section = navOrder[(idx + delta + navOrder.length) % navOrder.length]
+    }
+
     signal dismissRequested()
 
     readonly property var i18n: host.i18n
 
-    // Fixed colors (umbra theme) so settings menu doesn't change when theme changes
-    readonly property color fixedScrim: "#bd000000"
-    readonly property color fixedSurface: "#070707"
-    readonly property color fixedSurfaceAlt: "#171717"
-    readonly property color fixedText: "#f5f2ec"
-    readonly property color fixedSubtext: "#c1bdb5"
-    readonly property color fixedMuted: "#918d86"
-    readonly property color fixedLine: "#1cffffff"
-    readonly property color fixedLineStrong: "#32ffffff"
-    readonly property color fixedChip: "#14ffffff"
-    readonly property color fixedChipHover: "#29ffffff"
-    readonly property color fixedOn: "#eeeae2"
-    readonly property color fixedOnText: "#050505"
-    readonly property color fixedTrack: "#242424"
-    readonly property color fixedGrid: "#171717"
+    // The one place a theme id maps to its display name, so the picker's
+    // cards and the group note below it can't drift out of sync with each
+    // other — or with settings.json valid values.
+    function themeDisplayName(name) {
+        switch (name) {
+        case "black": return i18n.themeBlack
+        case "gray": return i18n.themeGray
+        case "white": return i18n.themeWhite
+        case "gold": return i18n.themeGold
+        case "amber": return i18n.themeAmber
+        case "red": return i18n.themeRed
+        default: return i18n.themeUmbra
+        }
+    }
+
+    // These used to be hardcoded to the umbra palette so the settings menu
+    // stayed put while the island changed theme underneath it — the name
+    // "fixed" is what's left of that. They now track whichever theme is
+    // actually active, the same table the island itself reads, and each one
+    // carries a Behavior so picking a new theme crossfades the whole window
+    // instead of cutting to it.
+    // Not readonly, unlike the rest of this file's properties: a Behavior
+    // has to be able to take a property over mid-transition, which this QML
+    // engine refuses on a read-only one — these are still only ever driven
+    // by the bindings below, nothing else in the file assigns to them.
+    readonly property var livePalette: host.palette
+    property color fixedScrim: livePalette.scrim
+    property color fixedSurface: livePalette.surface
+    property color fixedSurfaceAlt: livePalette.surfaceAlt
+    property color fixedText: livePalette.text
+    property color fixedSubtext: livePalette.subtext
+    property color fixedMuted: livePalette.muted
+    property color fixedLine: livePalette.line
+    property color fixedLineStrong: livePalette.lineStrong
+    property color fixedChip: livePalette.chip
+    property color fixedChipHover: livePalette.chipHover
+    property color fixedOn: livePalette.on
+    property color fixedOnText: livePalette.onText
+    property color fixedTrack: livePalette.track
+    property color fixedGrid: livePalette.grid
+    // Alerts (a muted mic, a destructive action) stay this fixed red no
+    // matter the theme — the same rule the island itself follows.
     readonly property color fixedStatusAlert: "#c24a4e"
+
+    Behavior on fixedScrim { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedSurface { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedSurfaceAlt { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedText { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedSubtext { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedMuted { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedLine { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedLineStrong { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedChip { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedChipHover { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedOn { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedOnText { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedTrack { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
+    Behavior on fixedGrid { ColorAnimation { duration: 280; easing.type: Easing.OutCubic } }
 
     // A deep link from the settingsSection IPC call. Consumed once and cleared,
     // so it steers this opening only and the next one still remembers where the
@@ -101,6 +152,18 @@ PanelWindow {
         onActivated: settingsWin.dismissRequested()
     }
 
+    Shortcut {
+        sequence: "Down"
+        enabled: settingsWin.open
+        onActivated: settingsWin.moveSection(1)
+    }
+
+    Shortcut {
+        sequence: "Up"
+        enabled: settingsWin.open
+        onActivated: settingsWin.moveSection(-1)
+    }
+
     // Click-outside-to-dismiss. The window below has its own MouseArea that
     // swallows clicks so they never reach this one.
     Rectangle {
@@ -135,7 +198,7 @@ PanelWindow {
         border.width: 1
         border.color: settingsWin.fixedLine
         opacity: settingsWin.open ? 1 : 0
-        scale: settingsWin.open ? 1 : 0.94
+        scale: settingsWin.open ? 1 : 0.97
 
         MouseArea {
             anchors.fill: parent
@@ -145,16 +208,15 @@ PanelWindow {
 
         Behavior on opacity {
             NumberAnimation {
-                duration: 200
+                duration: 220
                 easing.type: Easing.OutCubic
             }
         }
 
         Behavior on scale {
             NumberAnimation {
-                duration: 260
-                easing.type: Easing.OutBack
-                easing.overshoot: 0.6
+                duration: 340
+                easing.type: Easing.OutExpo
             }
         }
 
@@ -222,36 +284,67 @@ PanelWindow {
                         }
                     }
 
-                    Repeater {
-                        model: ["appearance", "clock", "calls", "notifications", "media", "panels", "general"]
+                    // A single pill that slides between items, rather than each
+                    // item fading its own background in and out — the motion
+                    // reads as "the selection moved" instead of "two rows
+                    // changed colour", which is the more legible story for what
+                    // actually happened.
+                    Item {
+                        id: navWrap
+                        Layout.fillWidth: true
+                        implicitHeight: navColumn.implicitHeight
 
-                        NavItem {
-                            required property string modelData
-                            Layout.fillWidth: true
-                            icon: {
-                                switch (modelData) {
-                                case "clock": return "󰥔"
-                                case "calls": return "󰏶"
-                                case "notifications": return "󰂚"
-                                case "media": return "󰎈"
-                                case "panels": return "󰕾"
-                                case "general": return "󰖟"
-                                default: return "󰸌"
+                        Rectangle {
+                            id: navIndicator
+                            width: navWrap.width
+                            height: 42
+                            radius: 12
+                            color: settingsWin.fixedOn
+                            y: settingsWin.sectionIndex * (42 + navColumn.spacing)
+                            Behavior on y {
+                                NumberAnimation { duration: 280; easing.type: Easing.OutCubic }
+                            }
+                        }
+
+                        Column {
+                            id: navColumn
+                            width: navWrap.width
+                            spacing: 6
+
+                            Repeater {
+                                model: settingsWin.navOrder
+
+                                NavItem {
+                                    required property string modelData
+                                    width: navColumn.width
+                                    icon: {
+                                        switch (modelData) {
+                                        case "clock": return "󰥔"
+                                        case "timetools": return "󰔛"
+                                        case "media": return "󰎈"
+                                        case "calls": return "󰏶"
+                                        case "notifications": return "󰂚"
+                                        case "panels": return "󰕾"
+                                        case "general": return "󰖟"
+                                        default: return "󰸌"
+                                        }
+                                    }
+                                    label: {
+                                        switch (modelData) {
+                                        case "clock": return settingsWin.i18n.secClock
+                                        case "timetools": return settingsWin.i18n.secTimeTools
+                                        case "media": return settingsWin.i18n.secMedia
+                                        case "calls": return settingsWin.i18n.secCalls
+                                        case "notifications": return settingsWin.i18n.secNotifications
+                                        case "panels": return settingsWin.i18n.secPanels
+                                        case "general": return settingsWin.i18n.secGeneral
+                                        default: return settingsWin.i18n.secAppearance
+                                        }
+                                    }
+                                    active: settingsWin.section === modelData
+                                    onTriggered: settingsWin.section = modelData
                                 }
                             }
-                            label: {
-                                switch (modelData) {
-                                case "clock": return settingsWin.i18n.secClock
-                                case "calls": return settingsWin.i18n.secCalls
-                                case "notifications": return settingsWin.i18n.secNotifications
-                                case "media": return settingsWin.i18n.secMedia
-                                case "panels": return settingsWin.i18n.secPanels
-                                case "general": return settingsWin.i18n.secGeneral
-                                default: return settingsWin.i18n.secAppearance
-                                }
-                            }
-                            active: settingsWin.section === modelData
-                            onTriggered: settingsWin.section = modelData
                         }
                     }
 
@@ -298,9 +391,10 @@ PanelWindow {
                             text: {
                                 switch (settingsWin.section) {
                                 case "clock": return settingsWin.i18n.secClock
+                                case "timetools": return settingsWin.i18n.secTimeTools
+                                case "media": return settingsWin.i18n.secMedia
                                 case "calls": return settingsWin.i18n.secCalls
                                 case "notifications": return settingsWin.i18n.secNotifications
-                                case "media": return settingsWin.i18n.secMedia
                                 case "panels": return settingsWin.i18n.secPanels
                                 case "general": return settingsWin.i18n.secGeneral
                                 default: return settingsWin.i18n.secAppearance
@@ -316,9 +410,11 @@ PanelWindow {
                             Layout.preferredWidth: 36
                             Layout.preferredHeight: 36
                             radius: 18
+                            scale: closeHit.containsMouse ? 1.08 : 1
                             color: closeHit.containsMouse ? settingsWin.fixedStatusAlert
                                                           : settingsWin.fixedChip
-                            Behavior on color { ColorAnimation { duration: 140 } }
+                            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack; easing.overshoot: 2 } }
 
                             Text {
                                 anchors.centerIn: parent
@@ -326,7 +422,7 @@ PanelWindow {
                                 color: closeHit.containsMouse ? "#ffffff" : settingsWin.fixedSubtext
                                 font.family: settingsWin.host.iconFont
                                 font.pixelSize: 15
-                                Behavior on color { ColorAnimation { duration: 140 } }
+                                Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
                             }
 
                             MouseArea {
@@ -343,9 +439,10 @@ PanelWindow {
                         text: {
                             switch (settingsWin.section) {
                             case "clock": return settingsWin.i18n.secClockSub
+                            case "timetools": return settingsWin.i18n.secTimeToolsSub
+                            case "media": return settingsWin.i18n.secMediaSub
                             case "calls": return settingsWin.i18n.secCallsSub
                             case "notifications": return settingsWin.i18n.secNotificationsSub
-                            case "media": return settingsWin.i18n.secMediaSub
                             case "panels": return settingsWin.i18n.secPanelsSub
                             case "general": return settingsWin.i18n.secGeneralSub
                             default: return settingsWin.i18n.secAppearanceSub
@@ -381,10 +478,26 @@ PanelWindow {
                     // looking at nothing. Every section starts at its top.
                     Connections {
                         target: settingsWin
-                        function onSectionChanged() { flick.contentY = 0 }
+                        function onSectionChanged() {
+                            flick.contentY = 0
+                            sectionEnter.restart()
+                        }
                     }
                     ScrollBar.vertical: ScrollBar {
                         policy: flick.contentHeight > flick.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                    }
+
+                    // A quick fade-and-rise for the new section's content, so
+                    // switching sections reads as the pane refreshing rather
+                    // than as a hard cut to different text.
+                    SequentialAnimation {
+                        id: sectionEnter
+                        PropertyAction { target: sections; property: "opacity"; value: 0 }
+                        PropertyAction { target: sections; property: "y"; value: 10 }
+                        ParallelAnimation {
+                            NumberAnimation { target: sections; property: "opacity"; to: 1; duration: 240; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: sections; property: "y"; to: 0; duration: 300; easing.type: Easing.OutCubic }
+                        }
                     }
 
                     ColumnLayout {
@@ -396,15 +509,18 @@ PanelWindow {
                         SettingGroup {
                             visible: settingsWin.section === "appearance"
                             label: settingsWin.i18n.grpTheme
-                            note: settingsWin.i18n.grpThemeNote
+                            // Names the active theme right in the note, so
+                            // confirming a pick doesn't mean scanning the
+                            // grid for whichever card has the checkmark.
+                            note: settingsWin.i18n.grpThemeNote + " — " + settingsWin.themeDisplayName(settingsWin.host.themeName)
 
                             ThemePicker { Layout.fillWidth: true }
                         }
 
                         SettingGroup {
                             visible: settingsWin.section === "appearance"
-                            label: settingsWin.i18n.grpSurfaces
-                            note: settingsWin.i18n.grpSurfacesNote
+                            label: settingsWin.i18n.grpBorders
+                            note: settingsWin.i18n.grpBordersNote
 
                             SettingRow {
                                 Layout.fillWidth: true
@@ -418,17 +534,12 @@ PanelWindow {
                                     settingsWin.host.saveSettings()
                                 }
                             }
+                        }
 
-                            Text {
-                                Layout.fillWidth: true
-                                Layout.topMargin: 2
-                                text: settingsWin.i18n.setMediaSurfaceDesc
-                                color: settingsWin.fixedMuted
-                                font.family: settingsWin.host.uiFont
-                                font.pixelSize: 13
-                                wrapMode: Text.WordWrap
-                                Layout.preferredHeight: contentHeight
-                            }
+                        SettingGroup {
+                            visible: settingsWin.section === "appearance"
+                            label: settingsWin.i18n.grpMediaSurface
+                            note: settingsWin.i18n.grpMediaSurfaceNote
 
                             SurfacePicker { Layout.fillWidth: true }
                         }
@@ -611,11 +722,232 @@ PanelWindow {
                             }
                         }
 
-                        // ----------------------------------------------- media
+                        // ------------------------------------------- time tools
+                        SettingGroup {
+                            visible: settingsWin.section === "timetools"
+                            label: settingsWin.i18n.grpTimePresets
+                            note: settingsWin.i18n.grpTimePresetsNote
+
+                            ChoiceRow {
+                                Layout.fillWidth: true
+                                icon: "󰔛"
+                                label: settingsWin.i18n.setTimerDefault
+                                detail: settingsWin.i18n.setTimerDefaultDesc
+                                options: ["1 min", "3 min", "5 min", "10 min", "15 min", "25 min"]
+                                values: [1, 3, 5, 10, 15, 25]
+                                current: settingsWin.host.timerDefaultMinutes
+                                onPicked: value => {
+                                    settingsWin.host.timerDefaultMinutes = value
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            ChoiceRow {
+                                Layout.fillWidth: true
+                                icon: "󰄉"
+                                label: settingsWin.i18n.setFocusDefault
+                                detail: settingsWin.i18n.setFocusDefaultDesc
+                                options: ["15 min", "20 min", "25 min", "30 min", "45 min", "60 min"]
+                                values: [15, 20, 25, 30, 45, 60]
+                                current: settingsWin.host.focusDefaultMinutes
+                                onPicked: value => {
+                                    settingsWin.host.focusDefaultMinutes = value
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            ChoiceRow {
+                                Layout.fillWidth: true
+                                icon: "󰅶"
+                                label: settingsWin.i18n.setBreakDefault
+                                detail: settingsWin.i18n.setBreakDefaultDesc
+                                options: ["3 min", "5 min", "10 min", "15 min"]
+                                values: [3, 5, 10, 15]
+                                current: settingsWin.host.breakDefaultMinutes
+                                onPicked: value => {
+                                    settingsWin.host.breakDefaultMinutes = value
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+                        }
+
+                        SettingGroup {
+                            visible: settingsWin.section === "timetools"
+                            label: settingsWin.i18n.grpTimeChime
+                            note: settingsWin.i18n.grpTimeChimeNote
+
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰎈"
+                                label: settingsWin.i18n.setChime
+                                detail: settingsWin.i18n.setChimeDesc
+                                checked: settingsWin.host.timeChimeEnabled
+                                onToggled: {
+                                    settingsWin.host.timeChimeEnabled = !settingsWin.host.timeChimeEnabled
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            // Not a ChoiceRow: eleven options laid out in one
+                            // row ran past the right edge of the window, so
+                            // the last four sounds could not be reached at
+                            // all. This wraps, and picking one plays it —
+                            // choosing a sound you cannot hear is not a
+                            // choice.
+                            ChimePicker { Layout.fillWidth: true }
+
+                            ChoiceRow {
+                                Layout.fillWidth: true
+                                icon: "󰕾"
+                                label: settingsWin.i18n.setChimeVolume
+                                detail: settingsWin.i18n.setChimeVolumeDesc
+                                options: [settingsWin.i18n.chimeVolSoft, settingsWin.i18n.chimeVolNormal, settingsWin.i18n.chimeVolLoud]
+                                values: ["soft", "normal", "loud"]
+                                current: settingsWin.host.timeChimeVolume
+                                onPicked: value => {
+                                    settingsWin.host.timeChimeVolume = value
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            Rectangle {
+                                id: testChimeBtn
+                                Layout.fillWidth: true
+                                implicitHeight: 52
+                                radius: 14
+                                // There's no completion signal from the detached
+                                // player process, so the button times itself out
+                                // using each bundled sound's own length (measured
+                                // with soxi) rather than guessing one duration
+                                // for every clip — timesup.wav alone is 10s
+                                // against ~0.3-1.1s for the rest.
+                                property bool playing: false
+                                color: testBtnHit.containsMouse ? settingsWin.fixedChipHover : settingsWin.fixedChip
+                                Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                                function chimeDurationMs(name) {
+                                    switch (name) {
+                                    case "timesup": return 10000
+                                    case "chime1": return 490
+                                    case "chime2": return 510
+                                    case "chime3": return 700
+                                    case "chime4": return 370
+                                    case "chime5": return 900
+                                    case "chime6": return 300
+                                    case "chime7": return 1050
+                                    case "chime8": return 460
+                                    case "chime9": return 600
+                                    case "chime10": return 340
+                                    default: return 1200
+                                    }
+                                }
+
+                                Timer {
+                                    id: chimeResetTimer
+                                    onTriggered: testChimeBtn.playing = false
+                                }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 14
+                                    anchors.rightMargin: 14
+                                    spacing: 12
+
+                                    Text {
+                                        text: "󰓃"
+                                        color: "#3aa863"
+                                        font.family: settingsWin.host.iconFont
+                                        font.pixelSize: 18
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: settingsWin.i18n.testChime
+                                        color: settingsWin.fixedText
+                                        font.family: settingsWin.host.uiFont
+                                        font.weight: Font.DemiBold
+                                        font.pixelSize: 14
+                                    }
+
+                                    Rectangle {
+                                        implicitWidth: playLabel.implicitWidth + 32
+                                        implicitHeight: 30
+                                        radius: 10
+                                        color: testChimeBtn.playing ? settingsWin.fixedStatusAlert : settingsWin.fixedOn
+                                        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                        Behavior on implicitWidth { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                                        Text {
+                                            id: playLabel
+                                            anchors.centerIn: parent
+                                            text: testChimeBtn.playing
+                                                  ? ("󰏤  " + (settingsWin.i18n.tr ? "Durdur" : "Stop"))
+                                                  : ("󰐊  " + (settingsWin.i18n.tr ? "Çal" : "Play"))
+                                            color: testChimeBtn.playing ? "#ffffff" : settingsWin.fixedOnText
+                                            font.family: settingsWin.host.uiFont
+                                            font.weight: Font.Bold
+                                            font.pixelSize: 12
+                                            Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                        }
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: testBtnHit
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onClicked: {
+                                        if (testChimeBtn.playing) {
+                                            settingsWin.host.run(["chime-stop"])
+                                            chimeResetTimer.stop()
+                                            testChimeBtn.playing = false
+                                        } else {
+                                            settingsWin.host.run(["chime", settingsWin.host.chimeSound])
+                                            testChimeBtn.playing = true
+                                            chimeResetTimer.interval = testChimeBtn.chimeDurationMs(settingsWin.host.chimeSound)
+                                            chimeResetTimer.restart()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingGroup {
+                            visible: settingsWin.section === "timetools"
+                            label: settingsWin.i18n.grpTimeBehaviour
+                            note: settingsWin.i18n.grpTimeBehaviourNote
+
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰔚"
+                                label: settingsWin.i18n.setAutoStartBreak
+                                detail: settingsWin.i18n.setAutoStartBreakDesc
+                                checked: settingsWin.host.autoStartBreak
+                                onToggled: {
+                                    settingsWin.host.autoStartBreak = !settingsWin.host.autoStartBreak
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+                        }
+
+                        // ----------------------------------------------- media (player)
                         SettingGroup {
                             visible: settingsWin.section === "media"
-                            label: settingsWin.i18n.grpPanel
-                            note: settingsWin.i18n.grpPanelNote
+                            label: settingsWin.i18n.grpPlayerVisuals
+                            note: settingsWin.i18n.grpPlayerVisualsNote
+
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰋩"
+                                label: settingsWin.i18n.setAlbumArt
+                                preview: Component { PvAlbumArt {} }
+                                detail: settingsWin.i18n.setAlbumArtDesc
+                                checked: settingsWin.host.mediaAlbumArtEnabled
+                                onToggled: {
+                                    settingsWin.host.mediaAlbumArtEnabled = !settingsWin.host.mediaAlbumArtEnabled
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
 
                             SettingRow {
                                 Layout.fillWidth: true
@@ -645,16 +977,22 @@ PanelWindow {
 
                             SettingRow {
                                 Layout.fillWidth: true
-                                icon: "󰋩"
-                                label: settingsWin.i18n.setAlbumArt
-                                preview: Component { PvAlbumArt {} }
-                                detail: settingsWin.i18n.setAlbumArtDesc
-                                checked: settingsWin.host.mediaAlbumArtEnabled
+                                icon: "󰔟"
+                                label: settingsWin.i18n.setProgressBar
+                                preview: Component { PvProgressBar {} }
+                                detail: settingsWin.i18n.setProgressBarDesc
+                                checked: settingsWin.host.mediaProgressBar
                                 onToggled: {
-                                    settingsWin.host.mediaAlbumArtEnabled = !settingsWin.host.mediaAlbumArtEnabled
+                                    settingsWin.host.mediaProgressBar = !settingsWin.host.mediaProgressBar
                                     settingsWin.host.saveSettings()
                                 }
                             }
+                        }
+
+                        SettingGroup {
+                            visible: settingsWin.section === "media"
+                            label: settingsWin.i18n.grpPlayerBehavior
+                            note: settingsWin.i18n.grpPlayerBehaviorNote
 
                             SettingRow {
                                 Layout.fillWidth: true
@@ -669,6 +1007,63 @@ PanelWindow {
                                 }
                             }
 
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰍜"
+                                label: settingsWin.i18n.setAutoExpandTrack
+                                detail: settingsWin.i18n.setAutoExpandTrackDesc
+                                checked: settingsWin.host.mediaAutoExpandTrack
+                                onToggled: {
+                                    settingsWin.host.mediaAutoExpandTrack = !settingsWin.host.mediaAutoExpandTrack
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 2
+                                text: settingsWin.i18n.setMediaSurfaceDesc
+                                color: settingsWin.fixedMuted
+                                font.family: settingsWin.host.uiFont
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                                Layout.preferredHeight: contentHeight
+                            }
+
+                            SurfacePicker { Layout.fillWidth: true }
+                        }
+
+                        SettingGroup {
+                            visible: settingsWin.section === "media"
+                            label: settingsWin.i18n.grpPlayerEffects
+                            note: settingsWin.i18n.grpPlayerEffectsNote
+
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰌵"
+                                label: settingsWin.i18n.setColorGlow
+                                detail: settingsWin.i18n.setColorGlowDesc
+                                checked: settingsWin.host.mediaColorGlow
+                                onToggled: {
+                                    settingsWin.host.mediaColorGlow = !settingsWin.host.mediaColorGlow
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            AnimationStylePicker { Layout.fillWidth: true }
+
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 2
+                                text: settingsWin.i18n.setAnimationIntensityDesc
+                                color: settingsWin.fixedMuted
+                                font.family: settingsWin.host.uiFont
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                                Layout.preferredHeight: contentHeight
+                            }
+
+                            IntensityPicker { Layout.fillWidth: true }
                         }
 
                         // Each panel that opens from the status strip gets its
@@ -727,27 +1122,6 @@ PanelWindow {
                             }
                         }
 
-                        SettingGroup {
-                            visible: settingsWin.section === "media"
-                            label: settingsWin.i18n.grpMotion
-                            note: settingsWin.i18n.grpMotionNote
-
-                            AnimationStylePicker { Layout.fillWidth: true }
-
-                            Text {
-                                Layout.fillWidth: true
-                                Layout.topMargin: 2
-                                text: settingsWin.i18n.setAnimationIntensityDesc
-                                color: settingsWin.fixedMuted
-                                font.family: settingsWin.host.uiFont
-                                font.pixelSize: 13
-                                wrapMode: Text.WordWrap
-                                Layout.preferredHeight: contentHeight
-                            }
-
-                            IntensityPicker { Layout.fillWidth: true }
-                        }
-
                         // --------------------------------------------- general
                         SettingGroup {
                             visible: settingsWin.section === "general"
@@ -795,32 +1169,6 @@ PanelWindow {
                                 checked: settingsWin.host.lockedOpen
                                 onToggled: settingsWin.host.lockedOpen = !settingsWin.host.lockedOpen
                             }
-
-                            SettingRow {
-                                Layout.fillWidth: true
-                                icon: "󰎈"
-                                label: settingsWin.i18n.setChime
-                                detail: settingsWin.i18n.setChimeDesc
-                                checked: settingsWin.host.timeChimeEnabled
-                                onToggled: {
-                                    settingsWin.host.timeChimeEnabled = !settingsWin.host.timeChimeEnabled
-                                    settingsWin.host.saveSettings()
-                                }
-                            }
-
-                            ChoiceRow {
-                                Layout.fillWidth: true
-                                icon: "󰕩"
-                                label: settingsWin.i18n.setChimeSound
-                                detail: settingsWin.i18n.setChimeSoundDesc
-                                options: ["timesup (eski)", "chime1 (klasik 3 bip)", "chime2 (hızlı 3 bip)", "chime3 (alçak 2 bip)", "chime4 (dijital 5 bip)", "chime5 (derin 2 bip)", "chime6 (basit ding)", "chime7 (ding-dong)", "chime8 (alarm 5 bip)", "chime9 (yumuşak artan)", "chime10 (modern telefon)"]
-                                values: ["timesup", "chime1", "chime2", "chime3", "chime4", "chime5", "chime6", "chime7", "chime8", "chime9", "chime10"]
-                                current: settingsWin.host.chimeSound
-                                onPicked: value => {
-                                    settingsWin.host.chimeSound = value
-                                    settingsWin.host.saveSettings()
-                                }
-                            }
                         }
                     }
                 }
@@ -829,6 +1177,10 @@ PanelWindow {
     }
 
     // ------------------------------------------------------------ components
+    // The active fill itself now lives in the shared navIndicator pill behind
+    // the whole column, so this only ever paints a hover chip — never a
+    // second, independently-animated background racing the indicator to the
+    // same answer.
     component NavItem: Rectangle {
         id: nav
 
@@ -840,32 +1192,23 @@ PanelWindow {
 
         implicitHeight: 42
         radius: 12
-        color: nav.active ? settingsWin.fixedOn
-                          : (navHit.containsMouse ? settingsWin.fixedChipHover : "transparent")
-        Behavior on color { ColorAnimation { duration: 140 } }
+        color: (!nav.active && navHit.containsMouse) ? settingsWin.fixedChipHover : "transparent"
+        Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 12
+            anchors.leftMargin: 14
             anchors.rightMargin: 12
             spacing: 11
-
-            Rectangle {
-                Layout.preferredWidth: 3
-                Layout.preferredHeight: nav.active ? 20 : 8
-                radius: 2
-                color: nav.active ? settingsWin.fixedOnText : "transparent"
-                Behavior on Layout.preferredHeight {
-                    NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
-                }
-            }
 
             Text {
                 text: nav.icon
                 color: nav.active ? settingsWin.fixedOnText : settingsWin.fixedSubtext
                 font.family: settingsWin.host.iconFont
                 font.pixelSize: 16
-                Behavior on color { ColorAnimation { duration: 140 } }
+                scale: nav.active ? 1.05 : 1
+                Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 1.6 } }
             }
 
             Text {
@@ -876,7 +1219,7 @@ PanelWindow {
                 font.weight: nav.active ? Font.DemiBold : Font.Normal
                 font.pixelSize: 15
                 elide: Text.ElideRight
-                Behavior on color { ColorAnimation { duration: 140 } }
+                Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
             }
         }
 
@@ -957,11 +1300,13 @@ PanelWindow {
 
         implicitHeight: 66
         radius: 16
+        scale: (rowHit.containsMouse && enabled && !locked) ? 1.006 : 1
         color: (rowHit.containsMouse && enabled && !locked) ? settingsWin.fixedChipHover
                                                             : settingsWin.fixedChip
         opacity: enabled ? 1 : 0.45
-        Behavior on color { ColorAnimation { duration: 140 } }
-        Behavior on opacity { NumberAnimation { duration: 140 } }
+        Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 160 } }
+        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
         RowLayout {
             anchors.fill: parent
@@ -1037,28 +1382,39 @@ PanelWindow {
         }
     }
 
+    // A real sliding switch rather than a text pill: on/off reads from the
+    // thumb's position and the track's fill at a glance, the way every other
+    // toggle on the desktop already works, instead of asking the eye to read
+    // a 10px word each time.
     component TogglePill: Rectangle {
         id: pill
 
         property bool on: false
         property bool dimmed: false
 
-        implicitWidth: 64
-        implicitHeight: 30
-        radius: 15
-        opacity: pill.dimmed ? 0.75 : 1
-        color: pill.on ? settingsWin.fixedOn : settingsWin.fixedSurfaceAlt
-        Behavior on color { ColorAnimation { duration: 140 } }
+        implicitWidth: 48
+        implicitHeight: 28
+        radius: height / 2
+        opacity: pill.dimmed ? 0.7 : 1
+        color: pill.on ? settingsWin.fixedOn : settingsWin.fixedTrack
+        border.width: pill.on ? 0 : 1
+        border.color: settingsWin.fixedLineStrong
+        Behavior on color { ColorAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 160 } }
 
-        Text {
-            anchors.centerIn: parent
-            text: pill.on ? settingsWin.i18n.settingsOn : settingsWin.i18n.settingsOff
-            color: pill.on ? settingsWin.fixedOnText : settingsWin.fixedMuted
-            font.family: settingsWin.host.uiFont
-            font.weight: Font.Bold
-            font.pixelSize: 10
-            font.letterSpacing: 0.4
-            Behavior on color { ColorAnimation { duration: 140 } }
+        Rectangle {
+            id: thumb
+            width: 22
+            height: 22
+            radius: 11
+            anchors.verticalCenter: parent.verticalCenter
+            x: pill.on ? parent.width - width - 3 : 3
+            color: pill.on ? settingsWin.fixedOnText : settingsWin.fixedSubtext
+
+            Behavior on x {
+                NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: 1.3 }
+            }
+            Behavior on color { ColorAnimation { duration: 200; easing.type: Easing.OutCubic } }
         }
     }
 
@@ -1073,6 +1429,7 @@ PanelWindow {
         property var options: []
         property var values: []
         property var current: null
+        readonly property int activeIndex: choice.values.indexOf(choice.current)
 
         signal picked(var value)
 
@@ -1125,48 +1482,72 @@ PanelWindow {
             }
 
             Rectangle {
-                Layout.preferredWidth: segRow.implicitWidth + 6
+                Layout.preferredWidth: segHost.implicitWidth + 6
                 Layout.preferredHeight: 38
                 radius: 13
                 color: settingsWin.fixedSurfaceAlt
 
-                RowLayout {
-                    id: segRow
+                // One highlight that slides to the picked option, instead of
+                // each segment flipping its own fill — the same "selection
+                // moved" language as the sidebar's nav indicator.
+                Item {
+                    id: segHost
                     anchors.centerIn: parent
-                    spacing: 4
+                    implicitWidth: segRow.implicitWidth
+                    width: implicitWidth
+                    height: 32
 
-                    Repeater {
-                        model: choice.options.length
+                    Rectangle {
+                        id: segHighlight
+                        visible: choice.activeIndex >= 0 && segRepeater.count > choice.activeIndex
+                        radius: 10
+                        height: 32
+                        y: 0
+                        color: settingsWin.fixedOn
+                        x: segHighlight.visible ? segRepeater.itemAt(choice.activeIndex).x : 0
+                        width: segHighlight.visible ? segRepeater.itemAt(choice.activeIndex).width : 0
 
-                        Rectangle {
-                            id: seg
-                            required property int index
+                        Behavior on x { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                        Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                    }
 
-                            readonly property bool active: choice.values[seg.index] === choice.current
+                    Row {
+                        id: segRow
+                        spacing: 4
 
-                            implicitWidth: segLabel.implicitWidth + 20
-                            implicitHeight: 32
-                            radius: 10
-                            color: seg.active ? settingsWin.fixedOn
-                                              : (segHit.containsMouse ? settingsWin.fixedChipHover : "transparent")
-                            Behavior on color { ColorAnimation { duration: 140 } }
+                        Repeater {
+                            id: segRepeater
+                            model: choice.options.length
 
-                            Text {
-                                id: segLabel
-                                anchors.centerIn: parent
-                                text: choice.options[seg.index]
-                                color: seg.active ? settingsWin.fixedOnText : settingsWin.fixedMuted
-                                font.family: settingsWin.host.uiFont
-                                font.weight: Font.DemiBold
-                                font.pixelSize: 13
-                                Behavior on color { ColorAnimation { duration: 140 } }
-                            }
+                            Rectangle {
+                                id: seg
+                                required property int index
 
-                            MouseArea {
-                                id: segHit
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                onClicked: choice.picked(choice.values[seg.index])
+                                readonly property bool active: choice.values[seg.index] === choice.current
+
+                                implicitWidth: segLabel.implicitWidth + 20
+                                implicitHeight: 32
+                                radius: 10
+                                color: (!seg.active && segHit.containsMouse) ? settingsWin.fixedChipHover : "transparent"
+                                Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                                Text {
+                                    id: segLabel
+                                    anchors.centerIn: parent
+                                    text: choice.options[seg.index]
+                                    color: seg.active ? settingsWin.fixedOnText : settingsWin.fixedMuted
+                                    font.family: settingsWin.host.uiFont
+                                    font.weight: Font.DemiBold
+                                    font.pixelSize: 13
+                                    Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                }
+
+                                MouseArea {
+                                    id: segHit
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onClicked: choice.picked(choice.values[seg.index])
+                                }
                             }
                         }
                     }
@@ -1175,84 +1556,326 @@ PanelWindow {
         }
     }
 
-    // Four swatches rather than a segmented control: the whole point of a
-    // theme is what it looks like, so the control shows the colour itself.
-    component ThemePicker: Rectangle {
-        implicitHeight: 112
+    // The eleven bundled chimes, wrapped across as many rows as they need.
+    // Picking one plays it immediately: the difference between chime3 and
+    // chime7 is not something a label can carry.
+    component ChimePicker: Rectangle {
+        readonly property var sounds: ["timesup", "chime1", "chime2", "chime3", "chime4", "chime5",
+                                       "chime6", "chime7", "chime8", "chime9", "chime10"]
+
+        implicitHeight: chimeFlow.implicitHeight + chimeHead.implicitHeight + 34
         radius: 16
         color: settingsWin.fixedChip
 
         RowLayout {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
+            id: chimeHead
+            anchors { top: parent.top; left: parent.left; right: parent.right }
+            anchors.margins: 14
+            spacing: 14
+
+            Rectangle {
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 36
+                radius: 11
+                color: settingsWin.fixedSurfaceAlt
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "󰕩"
+                    color: settingsWin.fixedSubtext
+                    font.family: settingsWin.host.iconFont
+                    font.pixelSize: 16
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+
+                Text {
+                    Layout.fillWidth: true
+                    text: settingsWin.i18n.setChimeSound
+                    color: settingsWin.fixedText
+                    font.family: settingsWin.host.uiFont
+                    font.pixelSize: 15
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: settingsWin.i18n.setChimeSoundDesc
+                    color: settingsWin.fixedMuted
+                    font.family: settingsWin.host.uiFont
+                    font.pixelSize: 13
+                    elide: Text.ElideRight
+                }
+            }
+        }
+
+        Flow {
+            id: chimeFlow
+            anchors { top: chimeHead.bottom; left: parent.left; right: parent.right }
+            anchors.topMargin: 12
+            anchors.leftMargin: 14
+            anchors.rightMargin: 14
+            spacing: 7
 
             Repeater {
-                model: ["black", "umbra", "gray", "white"]
+                model: parent.parent.sounds
 
                 Rectangle {
-                    id: swatch
+                    id: chimeChip
                     required property string modelData
 
-                    readonly property bool active: settingsWin.host.themeName === swatch.modelData
-                    readonly property string displayLabel: {
-                        switch (swatch.modelData) {
-                        case "black": return settingsWin.i18n.themeBlack
-                        case "gray": return settingsWin.i18n.themeGray
-                        case "white": return settingsWin.i18n.themeWhite
-                        default: return settingsWin.i18n.themeUmbra
-                        }
-                    }
+                    readonly property bool active: settingsWin.host.chimeSound === chimeChip.modelData
+                    readonly property string displayLabel: chimeChip.modelData === "timesup"
+                        ? settingsWin.i18n.chimeDefault
+                        : chimeChip.modelData.replace("chime", "")
 
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    implicitWidth: Math.max(46, chimeLabel.implicitWidth + 22)
+                    implicitHeight: 34
                     radius: 11
-                    color: settingsWin.fixedChipHover
-                    border.width: 1
-                    border.color: swatch.active ? settingsWin.fixedText : "transparent"
-                    Behavior on border.color { ColorAnimation { duration: 140 } }
+                    color: chimeChip.active ? settingsWin.fixedOn
+                                            : (chimeHit.containsMouse ? settingsWin.fixedChipHover
+                                                                      : settingsWin.fixedSurfaceAlt)
+                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                    scale: chimeHit.containsMouse && !chimeChip.active ? 1.05 : 1
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 8
-                        spacing: 7
-
-                        // Reads the palette table directly instead of carrying a
-                        // second copy of the hex values, so a colour tweak in
-                        // DynamicIsland.qml is reflected here automatically.
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 34
-                            radius: 7
-                            clip: true
-                            color: settingsWin.host.themePalettes[swatch.modelData].islandFill
-                            border.width: 1
-                            border.color: settingsWin.host.themePalettes[swatch.modelData].lineStrong
-
-                            Rectangle {
-                                anchors { top: parent.top; right: parent.right; bottom: parent.bottom }
-                                width: parent.width * 0.38
-                                color: settingsWin.host.themePalettes[swatch.modelData].surfaceAlt
-                            }
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            horizontalAlignment: Text.AlignHCenter
-                            text: swatch.displayLabel
-                            color: swatch.active ? settingsWin.fixedText
-                                                 : settingsWin.fixedMuted
-                            font.family: settingsWin.host.uiFont
-                            font.weight: Font.DemiBold
-                            font.pixelSize: 12
-                            elide: Text.ElideRight
-                        }
+                    Text {
+                        id: chimeLabel
+                        anchors.centerIn: parent
+                        text: chimeChip.displayLabel
+                        color: chimeChip.active ? settingsWin.fixedOnText : settingsWin.fixedSubtext
+                        font.family: settingsWin.host.uiFont
+                        font.weight: Font.DemiBold
+                        font.pixelSize: 13
+                        Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
                     }
 
                     MouseArea {
+                        id: chimeHit
                         anchors.fill: parent
                         hoverEnabled: true
-                        onClicked: settingsWin.host.setTheme(swatch.modelData)
+                        onClicked: {
+                            settingsWin.host.chimeSound = chimeChip.modelData
+                            settingsWin.host.saveSettings()
+                            settingsWin.host.run(["chime-stop"])
+                            settingsWin.host.run(["chime", chimeChip.modelData])
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // A grid of small island mockups rather than flat colour chips: what
+    // sells a theme is the accent against the surface, not the surface
+    // alone, so each tile draws a shrunken pill in the theme's own fill,
+    // line and accent colours, washes its own card in a sliver of that same
+    // accent, and settles in with a staggered entrance the first time the
+    // group is shown — gold, amber and red share a near-identical dark base,
+    // and it's the accent that has to do all the telling-apart.
+    component ThemePicker: Rectangle {
+        implicitHeight: swatchGrid.implicitHeight + 24
+        radius: 16
+        color: settingsWin.fixedChip
+        clip: true
+
+        GridLayout {
+            id: swatchGrid
+            anchors.fill: parent
+            anchors.margins: 12
+            columns: 4
+            rowSpacing: 10
+            columnSpacing: 10
+
+            Repeater {
+                // Reads the same order the theme cycler and settings.json
+                // validation use, so a new theme only ever needs adding in
+                // one place (DynamicIsland.qml's themePalettes) to show up
+                // here too.
+                model: settingsWin.host.themeOrder
+
+                // The entrance animation lives on this outer cell rather than
+                // on the swatch itself: an imperative animation that targets
+                // a property severs any declarative binding on it for good,
+                // and the swatch below needs its own `scale` binding to stay
+                // alive for hover feedback long after the cell has settled.
+                Item {
+                    id: cell
+                    required property string modelData
+                    required property int index
+
+                    readonly property bool active: settingsWin.host.themeName === cell.modelData
+                    readonly property var pal: settingsWin.host.themePalettes[cell.modelData]
+                    readonly property string displayLabel: settingsWin.themeDisplayName(cell.modelData)
+
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 104
+
+                    opacity: 0
+                    scale: 0.88
+                    Component.onCompleted: cellEnter.start()
+
+                    SequentialAnimation {
+                        id: cellEnter
+                        PauseAnimation { duration: cell.index * 40 }
+                        ParallelAnimation {
+                            NumberAnimation { target: cell; property: "opacity"; to: 1; duration: 260; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: cell; property: "scale"; to: 1; duration: 380; easing.type: Easing.OutBack; easing.overshoot: 1.1 }
+                        }
+                    }
+
+                    Rectangle {
+                        id: swatch
+                        anchors.fill: parent
+                        radius: 14
+                        scale: swatchHit.containsMouse ? 1.025 : 1
+                        // Tinted by the theme's own accent rather than a
+                        // neutral chip colour, so every card carries a hint
+                        // of its identity even before it's picked.
+                        color: Qt.rgba(cell.pal.on.r, cell.pal.on.g, cell.pal.on.b,
+                                       cell.active ? 0.14 : (swatchHit.containsMouse ? 0.09 : 0.05))
+                        border.width: cell.active ? 2 : 1
+                        border.color: cell.active ? cell.pal.on : "transparent"
+                        Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                        Behavior on border.color { ColorAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                        // A soft ring of the theme's own accent behind the
+                        // active tile — the same "this one" language as the
+                        // sidebar's sliding indicator, in the colour that's
+                        // actually being picked rather than a neutral glow.
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: -5
+                            radius: parent.radius + 5
+                            color: "transparent"
+                            border.width: 8
+                            border.color: cell.pal.on
+                            opacity: cell.active ? 0.16 : 0
+                            z: -1
+                            Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                        }
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 8
+
+                            // A miniature of the real island — its fill
+                            // graded toward its own surface, its hairline,
+                            // and a glowing dot in the accent colour — rather
+                            // than a flat colour bar, so the accent that
+                            // defines a theme like Gold or Red is what the
+                            // eye lands on.
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: parent.width
+                                    height: 32
+                                    radius: height / 2
+                                    border.width: 1
+                                    border.color: cell.pal.lineStrong
+                                    gradient: Gradient {
+                                        orientation: Gradient.Horizontal
+                                        GradientStop { position: 0.0; color: cell.pal.islandFill }
+                                        GradientStop { position: 1.0; color: cell.pal.surfaceAlt }
+                                    }
+
+                                    RowLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 6
+
+                                        Item {
+                                            Layout.preferredWidth: 14
+                                            Layout.preferredHeight: 14
+
+                                            // The active theme's dot breathes
+                                            // gently, on the same shared phase
+                                            // the call-pulse preview uses —
+                                            // one more "this one is live"
+                                            // signal, at zero extra timer cost.
+                                            Rectangle {
+                                                anchors.centerIn: parent
+                                                width: 14; height: 14; radius: 7
+                                                color: cell.pal.on
+                                                opacity: cell.active
+                                                         ? 0.3 + Math.abs(Math.sin(settingsWin.host.visualPhase)) * 0.3
+                                                         : 0.35
+                                            }
+                                            Rectangle {
+                                                anchors.centerIn: parent
+                                                width: 8; height: 8; radius: 4
+                                                color: cell.pal.on
+                                            }
+                                        }
+                                        Rectangle {
+                                            Layout.preferredWidth: 22
+                                            Layout.preferredHeight: 4
+                                            radius: 2
+                                            color: cell.pal.text
+                                        }
+                                        Rectangle {
+                                            Layout.preferredWidth: 13
+                                            Layout.preferredHeight: 4
+                                            radius: 2
+                                            color: cell.pal.muted
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                text: cell.displayLabel
+                                color: cell.active ? settingsWin.fixedText
+                                                   : settingsWin.fixedMuted
+                                font.family: settingsWin.host.uiFont
+                                font.weight: Font.DemiBold
+                                font.pixelSize: 13
+                                elide: Text.ElideRight
+                                Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                            }
+                        }
+
+                        // A small check badge instead of relying on the
+                        // border alone to say "this one" — legible even at a
+                        // glance, and it pops in rather than appearing
+                        // mid-frame.
+                        Rectangle {
+                            width: 18
+                            height: 18
+                            radius: 9
+                            anchors.top: parent.top
+                            anchors.right: parent.right
+                            anchors.margins: 6
+                            color: cell.pal.on
+                            scale: cell.active ? 1 : 0
+                            opacity: cell.active ? 1 : 0
+                            Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 2.4 } }
+                            Behavior on opacity { NumberAnimation { duration: 160 } }
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "󰄬"
+                                color: cell.pal.onText
+                                font.family: settingsWin.host.iconFont
+                                font.pixelSize: 10
+                            }
+                        }
+
+                        MouseArea {
+                            id: swatchHit
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: settingsWin.host.setTheme(cell.modelData)
+                        }
                     }
                 }
             }
@@ -1291,10 +1914,12 @@ PanelWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 11
+                    scale: styleHit.containsMouse ? 1.03 : 1
                     color: settingsWin.fixedChipHover
                     border.width: 1
                     border.color: styleOpt.active ? settingsWin.fixedText : "transparent"
-                    Behavior on border.color { ColorAnimation { duration: 140 } }
+                    Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -1337,6 +1962,7 @@ PanelWindow {
                     }
 
                     MouseArea {
+                        id: styleHit
                         anchors.fill: parent
                         hoverEnabled: true
                         onClicked: {
@@ -1406,6 +2032,28 @@ PanelWindow {
                     width: 3
                     height: 4 + Math.abs(Math.sin(settingsWin.host.visualPhase + index * 0.7)) * 17
                     radius: 1
+                    color: settingsWin.fixedOn
+                }
+            }
+        }
+    }
+
+    component PvProgressBar: PreviewTile {
+        Column {
+            anchors.centerIn: parent
+            spacing: 3
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: 24
+                Rectangle { width: 12; height: 3; radius: 1; color: settingsWin.fixedOn }
+                Rectangle { width: 12; height: 3; radius: 1; color: settingsWin.fixedMuted }
+            }
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 52; height: 4; radius: 2
+                color: settingsWin.fixedSurfaceAlt
+                Rectangle {
+                    width: 30; height: 4; radius: 2
                     color: settingsWin.fixedOn
                 }
             }

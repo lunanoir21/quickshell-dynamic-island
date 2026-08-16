@@ -256,6 +256,25 @@ section + section { border-top: 1px solid var(--edge-soft); }
   font-size: 16px;
 }
 .release-card span { display: block; margin-top: 4px; color: var(--dim); font-size: 13px; line-height: 1.5; }
+.all-releases { margin-top: 20px; font-family: var(--mono); font-size: 12.5px; letter-spacing: .06em; }
+.all-releases a { text-decoration: none; border-bottom: 1px solid var(--edge); padding-bottom: 2px; }
+.all-releases a:hover { border-bottom-color: var(--lit); }
+
+/* --------------------------------------------------------------- the tour */
+.reel { margin: 0; }
+.reel video {
+  width: 100%; height: auto; display: block;
+  border: 1px solid var(--edge-soft);
+  border-radius: 20px;
+  background: var(--sunk);
+}
+.reel figcaption {
+  margin-top: 16px;
+  max-width: min(var(--measure), 100%);
+  color: var(--dim);
+  font-size: 14px;
+  line-height: 1.6;
+}
 
 /* ---------------------------------------------------------------- features */
 .rows { border-top: 1px solid var(--edge-soft); }
@@ -340,6 +359,7 @@ footer .sp { flex: 1; }
 <nav class="pill">
   <span class="beacon" aria-hidden="true"></span>
   <b>dynamic island</b>
+  <a class="ghost" href="changelog.html">Changelog</a>
   <a class="ghost" href="https://github.com/lunanoir21/quickshell-dynamic-island">GitHub&nbsp;↗</a>
 </nav>
 
@@ -365,6 +385,25 @@ footer .sp { flex: 1; }
 
 <main>
 
+<!-- The tour, recorded by tools/demo.sh on an empty desktop. Hidden entirely
+     if demo.mp4 is not present, so a checkout without one is not a broken
+     player — see the script's own header for how it is produced. -->
+<section class="wrap" id="tour" hidden>
+  <p class="eyebrow">The tour</p>
+  <figure class="reel">
+    <video id="demo-video" controls playsinline preload="metadata" poster="cover.png"
+           width="1920" height="1080" aria-label="Every feature of the island, in sequence">
+      <source src="demo.mp4" type="video/mp4">
+    </video>
+    <figcaption>
+      Every surface in order — the pill, the panel, the clock, the four time
+      tools, a notification, an incoming call, the device indicators and the
+      settings window changing theme. Recorded end to end from one script, so
+      it shows the build as it currently stands rather than as it once did.
+    </figcaption>
+  </figure>
+</section>
+
 <section class="wrap">
   <p class="eyebrow">What it is</p>
   <div class="prose">
@@ -384,39 +423,21 @@ footer .sp { flex: 1; }
   </div>
 </section>
 
+<!-- The newest entry only, built from changelog.json so this section and the
+     archive can never disagree about what shipped. The full history lives in
+     changelog.html. -->
 <section class="wrap" id="changelog">
-  <p class="eyebrow">Changelog · 2026.08.15</p>
+  <p class="eyebrow">Changelog · <span id="latest-version">latest</span></p>
   <div class="release-head">
-    <h2>It keeps time now — and tells you when the time is up.</h2>
-    <p>
-      A timer, a stopwatch with laps, a focus cycle and an alarm, rebuilt as one
-      instrument that retunes rather than four widgets splitting the width.
-      Finishing is an event: the island changes shape, chimes, and waits to be
-      answered. A tool left running stays visible on the collapsed pill.
+    <h2 id="latest-title">What changed most recently</h2>
+    <p id="latest-summary">
+      Every release is written down as it lands — what changed, why, and what it
+      looks like.
     </p>
+    <p class="all-releases"><a href="changelog.html">Every release, newest first&nbsp;→</a></p>
   </div>
 
-  <div class="release-grid">
-    <figure class="release-card wide">
-      <img src="screenshots/time-tools.png" alt="The time page with a running timer, a progress strip of square cells, duration presets and a rail of four modes" loading="lazy" width="780" height="324">
-      <figcaption><b>One instrument, four modes</b><span>The readout uses the same 5×7 matrix as the clock, so its digits roll the same way, and progress is drawn from those same square cells rather than a bar parked underneath.</span></figcaption>
-    </figure>
-
-    <figure class="release-card">
-      <img src="screenshots/time-alert.png" alt="A completion card reading Time's up with a dismiss button" loading="lazy" width="470" height="128">
-      <figcaption><b>Finishing is an event</b><span>Esc, Space, Return or a click — but not the pointer that happened to be where it appeared, and not the island collapsing.</span></figcaption>
-    </figure>
-
-    <figure class="release-card">
-      <img src="screenshots/time-capsule.png" alt="The collapsed pill carrying a green capsule with a running timer" loading="lazy" width="566" height="54">
-      <figcaption><b>Still counting while closed</b><span>Mode icon, live value, a drain line and a travelling sweep. Amber and twice the pace inside the last minute.</span></figcaption>
-    </figure>
-
-    <figure class="release-card wide">
-      <img src="screenshots/changelog/media-animation.png" alt="Expanded Umbra media panel with a live audio spectrum" loading="lazy" width="1120" height="450">
-      <figcaption><b>Previously: audio becomes the surface</b><span>Wave, Live and Calm variants share real cava data; visibility can be set to Soft, Balanced or Bold.</span></figcaption>
-    </figure>
-  </div>
+  <div class="release-grid" id="latest-shots"></div>
 </section>
 
 <section class="wrap">
@@ -869,6 +890,65 @@ addEventListener("resize", () => {
   clearTimeout(resizeJob);
   resizeJob = setTimeout(render, 120);
 });
+
+/* ------------------------------------------------------------------ tour */
+/* The video is only committed when there is a current one to show, so the
+   section reveals itself once the file is confirmed to exist rather than
+   shipping a permanently broken player. */
+(() => {
+  const section = document.getElementById("tour");
+  const video = document.getElementById("demo-video");
+  if (!section || !video) return;
+  video.addEventListener("loadedmetadata", () => { section.hidden = false; }, { once: true });
+  video.addEventListener("error", () => { section.hidden = true; }, { once: true });
+})();
+
+/* ------------------------------------------------------------- changelog */
+/* Reads the same file the archive page does, so the two can never disagree
+   about what shipped most recently. */
+fetch("changelog.json")
+  .then((response) => (response.ok ? response.json() : Promise.reject(new Error(response.status))))
+  .then(({ releases = [] }) => {
+    const latest = releases[0];
+    if (!latest) return;
+
+    document.getElementById("latest-version").textContent = latest.version;
+    document.getElementById("latest-title").textContent = latest.title;
+    document.getElementById("latest-summary").textContent = latest.summary;
+
+    const grid = document.getElementById("latest-shots");
+    for (const shot of latest.shots || []) {
+      const figure = document.createElement("figure");
+      figure.className = "release-card" + (shot.wide ? " wide" : "");
+
+      const img = document.createElement("img");
+      img.src = shot.src;
+      img.alt = shot.alt || "";
+      img.loading = "lazy";
+      img.decoding = "async";
+      figure.append(img);
+
+      if (shot.caption || shot.text) {
+        const caption = document.createElement("figcaption");
+        if (shot.caption) {
+          const b = document.createElement("b");
+          b.textContent = shot.caption;
+          caption.append(b);
+        }
+        if (shot.text) {
+          const span = document.createElement("span");
+          span.textContent = shot.text;
+          caption.append(span);
+        }
+        figure.append(caption);
+      }
+      grid.append(figure);
+    }
+  })
+  .catch(() => {
+    /* The static copy in the markup stays as written — a changelog that
+       cannot load should not blank out the section it lives in. */
+  });
 </script>
 
 </body>

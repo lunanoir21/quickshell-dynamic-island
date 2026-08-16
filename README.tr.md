@@ -149,8 +149,7 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
   içeriğini `wl-copy` ile doğrudan panoya alır.
 - **Ölçerler** — ses, parlaklık ve mikrofon kazancı sürüklenebilir segment
   çubukları olarak (`wpctl` / `brightnessctl`).
-- **Hava durumu ve pil** — IP konumuyla Open-Meteo, 15 dakika önbelleklenir;
-  pil seviyesi, şarj durumu ve kalan süre sysfs ile UPower'dan. Seviye
+- **Pil** — seviye, şarj durumu ve kalan süre sysfs ile UPower'dan. Seviye
   okuması renk kodludur (≥%50 yeşil, %20–49 sarı, <%20 kırmızı), şarj
   olurken yavaş bir nefes alma efekti belirir, ve fişe takılı değilken
   kırmızıya geçiş anında kritik bir kart belirir.
@@ -162,7 +161,7 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 | | |
 | --- | --- |
 | **Zorunlu** | [Quickshell](https://quickshell.outfoxxed.me/) 0.3+, Hyprland (veya layer-shell destekleyen başka bir wlroots bileşik yöneticisi), `jq`, bir Nerd Font |
-| **İsteğe bağlı** | `playerctl` (medya), `wpctl` + `pactl` (ses, mikrofon algılama, arama algılama), `brightnessctl`, `cava` (spektrum), `bluetoothctl`, `upower`, `curl` (hava durumu, şarkı sözleri ve tarayıcı sekmeleri için kalite denetimli önbellekli kapak görseli), `fuser` (kamera algılama), `pw-play`/`paplay`/`aplay` veya `canberra-gtk-play` (zamanlayıcı çanı) |
+| **İsteğe bağlı** | `playerctl` (medya), `wpctl` + `pactl` (ses, mikrofon algılama, arama algılama), `brightnessctl`, `cava` (spektrum), `bluetoothctl`, `upower`, `curl` (şarkı sözleri ve tarayıcı sekmeleri için kalite denetimli önbellekli kapak görseli), `fuser` (kamera algılama), `pw-play`/`paplay`/`aplay` veya `canberra-gtk-play` (zamanlayıcı çanı) |
 
 Eksik olan her şey ilgili bölümü boş bırakır ya da yedeğe düşer — hiçbiri
 projeyi çökertmez.
@@ -432,7 +431,7 @@ adayı barındıran Quickshell yapılandırmasında yaşar. Yukarıdaki
 [Aramalar ve satır içi yanıt](#aramalar-ve-satır-içi-yanıt) bölümüne bakın.
 
 `backend.sh snapshot` tüm arayüz durumunu tek bir JSON nesnesi olarak yayar.
-Pahalı işler (hava durumu, bluetooth, UPower, kamera algılama) kilitli bir arka
+Pahalı işler (bluetooth, UPower, kamera algılama) kilitli bir arka
 plan işinde tazelenir ve önbellekten okunur; böylece bir poll asla onları
 beklemez. Oynatma konumu poll'ler arasında yerel olarak enterpole edilir ve
 kaydığında yeniden senkronlanır, böylece ilerleme çubuğu sıçramak yerine akar.

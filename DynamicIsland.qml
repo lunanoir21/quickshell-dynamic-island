@@ -37,7 +37,7 @@ PanelWindow {
     // silently disabled every close path.
     property bool interacting: false
 
-    property var islandState: ({media:{status:"Stopped",title:"",artist:"",art:"",player:"",shuffle:"Off",loop:"None",length:0,position:0},volume:0,muted:false,micVolume:0,micMuted:false,micActive:false,brightness:0,battery:100,batteryStatus:"",batteryTime:"",bluetooth:"",bluetoothPowered:false,weather:{icon:"",temp:"",apparent:""},cameraActive:false,call:{active:false,app:"",duration:0},system:{wifi:"",wifiPowered:true,activeWindow:"",fullscreen:0}})
+    property var islandState: ({media:{status:"Stopped",title:"",artist:"",art:"",player:"",shuffle:"Off",loop:"None",length:0,position:0},volume:0,muted:false,micVolume:0,micMuted:false,micActive:false,brightness:0,battery:100,batteryStatus:"",batteryTime:"",bluetooth:"",bluetoothPowered:false,cameraActive:false,call:{active:false,app:"",duration:0},system:{wifi:"",wifiPowered:true,activeWindow:"",fullscreen:0}})
 
     property int previousVolume: -1
     property int previousBrightness: -1
@@ -334,9 +334,42 @@ PanelWindow {
             chip: "#10000000", chipHover: "#22000000",
             on: "#181a1f", onText: "#ffffff",
             track: "#d3d6dc", scrim: "#70111418", grid: "#dfe2e7"
+        },
+        // A deep bronze-black rather than another near-black neutral, so the
+        // theme reads as "gold" from the surface colour alone before the
+        // accent ever shows up. The mustard-gold `on` is muted and metallic
+        // on purpose — amber (below) is the louder, more saturated sibling.
+        "gold": {
+            islandFill: "#f5140f09", surface: "#120d08", surfaceAlt: "#221a10",
+            text: "#f8ecd8", subtext: "#cdb896", muted: "#96836a",
+            line: "#20f0d9b0", lineStrong: "#38f0d9b0",
+            chip: "#16f3dcae", chipHover: "#2af3dcae",
+            on: "#f0b93c", onText: "#241a08",
+            track: "#2c2013", scrim: "#b3140f09", grid: "#1e170f"
+        },
+        "amber": {
+            islandFill: "#f5121110", surface: "#141110", surfaceAlt: "#241c15",
+            text: "#f7ede0", subtext: "#cdbba5", muted: "#978672",
+            line: "#20ffb066", lineStrong: "#38ffb066",
+            chip: "#16ffb055", chipHover: "#2affb055",
+            on: "#ff9f1c", onText: "#241202",
+            track: "#2e2116", scrim: "#b3141110", grid: "#1f1815"
+        },
+        // Wine-dark rather than neutral-black, the same way gold and amber
+        // lean bronze and charcoal — the surface itself should hint at the
+        // colour before the crimson accent confirms it. The accent sits low
+        // enough in luminance to need light text on top, unlike gold/amber's
+        // dark-on-bright pairing.
+        "red": {
+            islandFill: "#f5170a0c", surface: "#130a0b", surfaceAlt: "#241214",
+            text: "#f8e9ea", subtext: "#d0b3b6", muted: "#9c7c7f",
+            line: "#20f2a3a8", lineStrong: "#3af2a3a8",
+            chip: "#16f0a0a5", chipHover: "#2cf0a0a5",
+            on: "#e5484d", onText: "#fdf3f2",
+            track: "#331a1c", scrim: "#b3170a0c", grid: "#1f1315"
         }
     })
-    readonly property var themeOrder: ["black", "umbra", "gray", "white"]
+    readonly property var themeOrder: ["black", "umbra", "gray", "white", "gold", "amber", "red"]
     // Falls back rather than resolving to undefined: a settings.json edited by
     // hand to a name that no longer exists must not leave every colour unset.
     readonly property var palette: themePalettes[themeName] || themePalettes["umbra"]
@@ -406,6 +439,16 @@ PanelWindow {
     property bool compactMediaControls: true
     property string mediaAnimationStyle: "wave"
     property int mediaAnimationIntensity: 100
+    property bool mediaAutoExpandTrack: true
+    property bool mediaColorGlow: true
+    property bool mediaProgressBar: true
+
+    property int timerDefaultMinutes: 5
+    property int focusDefaultMinutes: 25
+    property int breakDefaultMinutes: 5
+    property bool autoStartBreak: false
+    property string timeChimeVolume: "normal"
+
     property bool appVolumeEnabled: true
     // "chips" names the players, "logos" shows their icons only, "segment" puts
     // one segmented pill in the status strip. Which reads best depends on how
@@ -454,6 +497,14 @@ PanelWindow {
             compactMediaControls: window.compactMediaControls,
             mediaAnimationStyle: window.mediaAnimationStyle,
             mediaAnimationIntensity: window.mediaAnimationIntensity,
+            mediaAutoExpandTrack: window.mediaAutoExpandTrack,
+            mediaColorGlow: window.mediaColorGlow,
+            mediaProgressBar: window.mediaProgressBar,
+            timerDefaultMinutes: window.timerDefaultMinutes,
+            focusDefaultMinutes: window.focusDefaultMinutes,
+            breakDefaultMinutes: window.breakDefaultMinutes,
+            autoStartBreak: window.autoStartBreak,
+            timeChimeVolume: window.timeChimeVolume,
             appVolumeEnabled: window.appVolumeEnabled,
             queueEnabled: window.queueEnabled,
             playerSwitcherStyle: window.playerSwitcherStyle,
@@ -511,6 +562,16 @@ PanelWindow {
             window.mediaAnimationStyle = ["wave", "live", "calm"].indexOf(savedAnimation) !== -1
                                        ? savedAnimation : window.mediaAnimationStyle
             window.mediaAnimationIntensity = readChoice(p, "mediaAnimationIntensity", [45, 70, 100], window.mediaAnimationIntensity)
+            window.mediaAutoExpandTrack = readBool(p, "mediaAutoExpandTrack", window.mediaAutoExpandTrack)
+            window.mediaColorGlow = readBool(p, "mediaColorGlow", window.mediaColorGlow)
+            window.mediaProgressBar = readBool(p, "mediaProgressBar", window.mediaProgressBar)
+
+            window.timerDefaultMinutes = readChoice(p, "timerDefaultMinutes", [1, 3, 5, 10, 15, 25, 30], window.timerDefaultMinutes)
+            window.focusDefaultMinutes = readChoice(p, "focusDefaultMinutes", [15, 20, 25, 30, 45, 60], window.focusDefaultMinutes)
+            window.breakDefaultMinutes = readChoice(p, "breakDefaultMinutes", [3, 5, 10, 15], window.breakDefaultMinutes)
+            window.autoStartBreak = readBool(p, "autoStartBreak", window.autoStartBreak)
+            window.timeChimeVolume = readChoice(p, "timeChimeVolume", ["soft", "normal", "loud"], window.timeChimeVolume)
+
             window.appVolumeEnabled = readBool(p, "appVolumeEnabled", window.appVolumeEnabled)
             window.queueEnabled = readBool(p, "queueEnabled", window.queueEnabled)
             window.playerSwitcherStyle = readChoice(p, "playerSwitcherStyle",
@@ -1647,6 +1708,14 @@ PanelWindow {
     IpcHandler {
         target: "dynamicIsland"
         readonly property bool calendarOpen: window.showCalendarPage
+        // The island is centred inside a full-width layer surface, so its
+        // layer geometry says nothing about where the pill actually is. These
+        // are what tools/capture.sh crops to — without them a screenshot is
+        // either the whole top strip or a hand-guessed rectangle that drifts
+        // the moment the island changes size.
+        readonly property int islandWidth: Math.round(window.targetWidth)
+        readonly property int islandHeight: Math.round(window.targetHeight)
+        readonly property int islandTopMargin: 8
         function toggle(): void { window.lockedOpen = !window.lockedOpen; if (!window.lockedOpen) window.closeIsland() }
         function open(): void { window.lockedOpen = true }
         function close(): void { window.closeIsland() }

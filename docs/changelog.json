@@ -1,0 +1,175 @@
+{
+  "$comment": "The changelog's single source of truth. docs/index.html shows the newest entry; docs/changelog.html renders all of them. Add a new object at the TOP of releases[] before every commit — see AGENTS.md. Screenshot paths are relative to docs/.",
+  "releases": [
+    {
+      "version": "2026.08.16",
+      "date": "2026-08-16",
+      "title": "Settings that move, and three themes that are not grey",
+      "summary": "The settings window was legible but static: every control changed state by cutting to it. It now animates what it is doing — the selection slides, switches slide, sections fade in — and it finally follows the theme it is used to pick. Gold, Amber and Red join the four neutrals.",
+      "changes": [
+        { "type": "added", "text": "Gold, Amber and Red themes. Each is built on a tinted dark base rather than another neutral, so the surface hints at the colour before the accent confirms it." },
+        { "type": "added", "text": "Keyboard navigation in settings — Up and Down move between sections." },
+        { "type": "changed", "text": "The settings window follows the active theme instead of staying fixed to Umbra, and crossfades between palettes rather than cutting." },
+        { "type": "changed", "text": "The sidebar's active section is now one indicator that slides between items, instead of each row fading its own background in and out." },
+        { "type": "changed", "text": "On/off controls are real sliding switches rather than pills reading ON and OFF, and segmented pickers slide a single highlight to the picked option." },
+        { "type": "changed", "text": "Theme cards are miniature islands drawn in each theme's own fill, hairline and accent, laid out as a grid with a staggered entrance." },
+        { "type": "changed", "text": "Switching sections fades and rises the new content instead of hard-cutting to it." },
+        { "type": "changed", "text": "Appearance is split into Theme, Borders and Media Panel — three groups that each do one thing, replacing one vague Surfaces group with a stray sentence wedged inside it." },
+        { "type": "fixed", "text": "The chime test button now turns into Stop while a sound plays and can actually stop it, instead of silently restarting the sound on every click." },
+        { "type": "fixed", "text": "The chime picker ran past the right edge of the window — four of the eleven sounds could not be reached at all. It wraps now, and picking one plays it." },
+        { "type": "removed", "text": "Weather, entirely. It cost two network calls and a geolocation lookup per refresh and nothing on the island ever displayed it." },
+        { "type": "removed", "text": "Four dead backend commands (volume, mic-volume, brightness, seek) that the UI had long since stopped calling, and nine unused interface strings." }
+      ],
+      "shots": [
+        {
+          "src": "screenshots/changelog/themes.png",
+          "alt": "The Appearance section of the settings window in the Amber theme, showing seven theme cards in a grid",
+          "caption": "Seven themes, shown as themes",
+          "text": "Each card draws a shrunken island in that theme's own colours. The active one carries a glow and a check badge in its accent — and the window around it is wearing the theme too.",
+          "wide": true
+        },
+        {
+          "src": "screenshots/changelog/chime-test.png",
+          "alt": "The time tools settings section with eleven chime chips wrapped onto one row",
+          "caption": "Eleven chimes, all reachable",
+          "text": "The old picker ran off the edge of the window past the seventh sound. Picking one now plays it — choosing a sound you cannot hear is not a choice."
+        },
+        {
+          "src": "screenshots/changelog/settings-switches.png",
+          "alt": "Notification settings rows with sliding toggle switches and a segmented duration picker",
+          "caption": "Switches that slide",
+          "text": "Position and fill say on or off, instead of a 10px word — and the duration picker slides one highlight rather than repainting two segments."
+        }
+      ]
+    },
+    {
+      "version": "2026.08.15",
+      "date": "2026-08-15",
+      "title": "It keeps time now — and tells you when the time is up",
+      "summary": "A timer, a stopwatch with laps, a focus cycle and an alarm, rebuilt as one instrument that retunes rather than four widgets splitting the width. Finishing is an event: the island changes shape, chimes, and waits to be answered. A tool left running stays visible on the collapsed pill.",
+      "changes": [
+        { "type": "added", "text": "Time tools: timer, stopwatch with laps, focus cycle and alarm, as one instrument with four modes." },
+        { "type": "added", "text": "A completion card that chimes and waits — dismissed with Esc, Space, Return or a click, but not by the pointer that happened to be where it appeared." },
+        { "type": "added", "text": "A running tool stays on the collapsed pill as a capsule, turning amber and doubling pace inside the last minute." },
+        { "type": "added", "text": "A Makefile of IPC shortcuts for exercising every widget without waiting for real hardware state." }
+      ],
+      "shots": [
+        {
+          "src": "screenshots/time-tools.png",
+          "alt": "The time page with a running timer, a progress strip of square cells, duration presets and a rail of four modes",
+          "caption": "One instrument, four modes",
+          "text": "The readout uses the same 5×7 matrix as the clock, so its digits roll the same way, and progress is drawn from those same square cells rather than a bar parked underneath.",
+          "wide": true
+        },
+        {
+          "src": "screenshots/time-alert.png",
+          "alt": "A completion card reading Time's up with a dismiss button",
+          "caption": "Finishing is an event",
+          "text": "Esc, Space, Return or a click — but not the pointer that happened to be where it appeared, and not the island collapsing."
+        },
+        {
+          "src": "screenshots/time-capsule.png",
+          "alt": "The collapsed pill carrying a green capsule with a running timer",
+          "caption": "Still counting while closed",
+          "text": "Mode icon, live value, a drain line and a travelling sweep. Amber and twice the pace inside the last minute."
+        }
+      ]
+    },
+    {
+      "version": "2026.08.14",
+      "date": "2026-08-14",
+      "title": "Calls, a per-app mixer, and what plays next",
+      "summary": "Incoming calls get the surface to themselves, every app that makes noise gets its own fader, and the queue the player reports becomes something you can read.",
+      "changes": [
+        { "type": "added", "text": "Incoming call handling, inferred from simultaneous playback and capture streams rather than any one app's API — so Signal, Telegram and WhatsApp are covered by one heuristic." },
+        { "type": "added", "text": "A per-application volume mixer, grouped by app rather than by stream, so a browser with four tabs is one row." },
+        { "type": "added", "text": "An up-next queue panel, marked experimental because most players never report one." }
+      ],
+      "shots": [
+        {
+          "src": "screenshots/call.png",
+          "alt": "An incoming call card with answer and decline buttons",
+          "caption": "The only colour in the project",
+          "text": "Green and red on answer and decline — the two controls where guessing wrong actually costs you something."
+        }
+      ]
+    },
+    {
+      "version": "2026.08.09",
+      "date": "2026-08-09",
+      "title": "Themes, a compact player, and audio that becomes the surface",
+      "summary": "Four palettes to choose from, a player-only pill for people who do not want the full panel, and a spectrum drawn from real audio.",
+      "changes": [
+        { "type": "added", "text": "Four themes — Black, Umbra, Gray and White — applied to the island, its panels and its notifications at once." },
+        { "type": "added", "text": "Compact media controls: a player-only pill that stays out of the way." },
+        { "type": "added", "text": "A progress track on the mini player." },
+        { "type": "added", "text": "Wave, Live and Calm animation variants sharing real cava data, at Soft, Balanced or Bold intensity." }
+      ],
+      "shots": [
+        {
+          "src": "screenshots/changelog/media-animation.png",
+          "alt": "Expanded Umbra media panel with a live audio spectrum",
+          "caption": "Audio becomes the surface",
+          "text": "Wave, Live and Calm variants share real cava data; visibility can be set to Soft, Balanced or Bold.",
+          "wide": true
+        },
+        {
+          "src": "screenshots/changelog/mini-player.png",
+          "alt": "The compact player-only pill with a progress track",
+          "caption": "Player only",
+          "text": "For a still desktop: the pill carries the track and its progress, and nothing else."
+        }
+      ]
+    },
+    {
+      "version": "2026.08.06",
+      "date": "2026-08-06",
+      "title": "Two languages, synced lyrics, and replying without leaving",
+      "summary": "The whole interface relabels itself between English and Turkish with no reload, notifications can be answered in place, and lyrics arrive in time with the track.",
+      "changes": [
+        { "type": "added", "text": "English and Turkish, switched live — every string is an ordinary property, so changing the language re-evaluates every binding that reads one." },
+        { "type": "added", "text": "Inline reply on notifications that support it." },
+        { "type": "added", "text": "Synced lyrics from LRCLIB, cached locally." }
+      ],
+      "shots": [
+        {
+          "src": "screenshots/lyrics.png",
+          "alt": "The lyrics panel with the current line highlighted",
+          "caption": "The line being sung",
+          "text": "The highlight is the whole point of synced lyrics, so it is what the panel leads with."
+        },
+        {
+          "src": "screenshots/reply.png",
+          "alt": "A notification with an inline reply field",
+          "caption": "Answer without leaving",
+          "text": "For the notifications that support it — the rest keep their actions."
+        }
+      ]
+    },
+    {
+      "version": "2026.08.05",
+      "date": "2026-08-05",
+      "title": "Initial release",
+      "summary": "One always-on-top surface pinned to the top edge: a compact pill that grows under the pointer into media controls, live meters and a pixel-art clock.",
+      "changes": [
+        { "type": "added", "text": "The island itself — hover to expand, 90ms grace on leave, or click-to-open for a still desktop." },
+        { "type": "added", "text": "Media controls, volume, brightness and microphone meters, and device indicators for microphone and camera." },
+        { "type": "added", "text": "A pixel-art clock drawn from a 5×7 matrix, in pixel, segment and plain styles." }
+      ],
+      "shots": [
+        {
+          "src": "screenshots/pill.png",
+          "alt": "The collapsed pill",
+          "caption": "Collapsed",
+          "text": "What sits on the screen when nothing needs saying."
+        },
+        {
+          "src": "screenshots/clock.png",
+          "alt": "The pixel-art clock",
+          "caption": "The clock",
+          "text": "A 5×7 matrix, with an optional dormant grid behind the lit cells."
+        }
+      ]
+    }
+  ]
+}

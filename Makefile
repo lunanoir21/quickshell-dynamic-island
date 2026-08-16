@@ -15,11 +15,14 @@ IPC := qs -p $(SHELL_QML) ipc call dynamicIsland
 # equivalent that's actually valid make syntax. SS_DELAY gives the card's
 # entrance animation time to settle before the capture; SS_DIR is where shots
 # land.
+#
+# The actual cropping lives in tools/capture.sh, not here — see AGENTS.md for
+# why a hand-rolled `grim -g` is the one thing not to do on this project.
 SS_DIR ?= /tmp/dynamic-island-screenshots
 SS_DELAY ?= 0.6
 
 .PHONY: help ss \
-	open close toggle \
+	open close toggle settings settings-ss \
 	mic-on mic-off camera-on camera-off \
 	battery-animation battery-full battery-half battery-low battery-alert battery-reset \
 	timer stopwatch focus alarm time-toggle time-reset timer-done timer-dismiss \
@@ -27,12 +30,14 @@ SS_DELAY ?= 0.6
 	lyrics-toggle clock-toggle mixer-toggle queue-toggle \
 	language-tr language-en language-toggle \
 	hover-on hover-off compact-on compact-off \
-	theme-black theme-umbra theme-gray theme-white theme-cycle
+	theme-black theme-umbra theme-gray theme-white theme-gold theme-amber theme-red theme-cycle \
+	demo demo-dry
 
 help:
 	@echo "Dynamic Island widget test shortcuts (edit Makefile to add more):"
 	@echo ""
 	@echo "  island:      open close toggle"
+	@echo "  settings:    settings (opens to Appearance — settings-ss to capture it)"
 	@echo "  privacy:     mic-on mic-off camera-on camera-off"
 	@echo "  battery:     battery-animation battery-full battery-half battery-low battery-alert battery-reset"
 	@echo "  time:        timer stopwatch focus alarm time-toggle time-reset"
@@ -41,36 +46,32 @@ help:
 	@echo "  panel:       lyrics-toggle clock-toggle mixer-toggle queue-toggle"
 	@echo "  language:    language-tr language-en language-toggle"
 	@echo "  behaviour:   hover-on hover-off compact-on compact-off"
-	@echo "  theme:       theme-black theme-umbra theme-gray theme-white theme-cycle"
+	@echo "  theme:       theme-black theme-umbra theme-gray theme-white theme-gold theme-amber theme-red theme-cycle"
 	@echo ""
-	@echo "  Append -ss to any of the above to also grab a screenshot of the"
-	@echo "  island once the card has settled, e.g. make battery-alert-ss"
-	@echo "  make ss on its own just grabs whatever the island looks like now."
+	@echo "  Append -ss to any of the above to also grab a screenshot once the"
+	@echo "  card has settled, e.g. make battery-alert-ss. make ss on its own"
+	@echo "  just grabs whatever the island looks like right now."
+	@echo ""
+	@echo "  demo:        record the front-page tour to docs/demo.mp4"
+	@echo "  demo-dry:    play the same scene list without recording"
 	@echo ""
 	@echo "SHELL_QML=$(SHELL_QML)  SS_DIR=$(SS_DIR)  SS_DELAY=$(SS_DELAY)"
 
-# Crops to the island's own layer-shell surface (namespace qs-dynamic-island)
-# rather than a fixed region or an interactive slurp select, so it stays
-# correct across monitors/resolutions and needs no pointer input.
-define screenshot
-	@command -v grim >/dev/null || { echo "grim not found (pacman -S grim)"; exit 1; }
-	@command -v jq >/dev/null || { echo "jq not found (pacman -S jq)"; exit 1; }
-	@mkdir -p "$(SS_DIR)"
-	@geom="$$(hyprctl layers -j | jq -r '[.[] | .levels[] | .[] | select(.namespace=="qs-dynamic-island")][0] | select(. != null) | "\(.x),\(.y) \(.w)x\(.h)"')"; \
-	if [ -z "$$geom" ]; then echo "qs-dynamic-island layer not found — is the shell running?"; exit 1; fi; \
-	file="$(SS_DIR)/$(1)-$$(date +%H%M%S).png"; \
-	grim -g "$$geom" "$$file" && echo "-> $$file"
-endef
-
 ss:
-	$(call screenshot,manual)
+	@tools/capture.sh --dir "$(SS_DIR)" --delay 0 manual
 
 # Generic: any target's -ss suffix runs the target, waits SS_DELAY for the
-# card to settle, then screenshots. Applies to every recipe below without
-# needing a screenshot variant hand-written for each one.
+# card to settle, then screenshots the island. Applies to every recipe below
+# without needing a screenshot variant hand-written for each one. An explicit
+# rule (like settings-ss, below) always wins over this pattern, so the one
+# target that isn't the island can still override which surface gets cropped.
 %-ss: %
 	@sleep $(SS_DELAY)
-	$(call screenshot,$*)
+	@tools/capture.sh --dir "$(SS_DIR)" --delay 0 $*
+
+settings-ss: settings
+	@sleep $(SS_DELAY)
+	@tools/capture.sh --target settings --dir "$(SS_DIR)" --delay 0 settings
 
 # ------------------------------------------------------------------- island
 open:
@@ -79,6 +80,11 @@ close:
 	$(IPC) close
 toggle:
 	$(IPC) toggle
+# Opens the settings window — a separate layer-shell surface from the island,
+# which is why it needs its own screenshot target (settings-ss, above) rather
+# than the generic %-ss pattern.
+settings:
+	$(IPC) settingsSection appearance
 
 # ------------------------------------------------------------------ privacy
 mic-on:
@@ -186,5 +192,17 @@ theme-gray:
 	$(IPC) theme gray
 theme-white:
 	$(IPC) theme white
+theme-gold:
+	$(IPC) theme gold
+theme-amber:
+	$(IPC) theme amber
+theme-red:
+	$(IPC) theme red
 theme-cycle:
 	$(IPC) theme cycle
+
+# ---------------------------------------------------------------------- tour
+demo:
+	tools/demo.sh
+demo-dry:
+	tools/demo.sh --dry-run

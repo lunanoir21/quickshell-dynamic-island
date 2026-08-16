@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Changelog · Dynamic Island for Quickshell</title>
+<meta name="description" content="Every release of Dynamic Island for Quickshell, newest first — what changed, why, and what it looks like.">
+<meta property="og:title" content="Changelog · Dynamic Island for Quickshell">
+<meta property="og:description" content="Every release, newest first.">
+<meta property="og:image" content="cover.png">
+<meta name="theme-color" content="#08080a">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='5' fill='%230d0d0f'/%3E%3Crect x='3' y='6' width='2' height='4' fill='%23f4f4f5'/%3E%3Crect x='7' y='4' width='2' height='8' fill='%23f4f4f5'/%3E%3Crect x='11' y='6' width='2' height='4' fill='%23f4f4f5'/%3E%3C/svg%3E">
+
+<style>
+@font-face {
+  font-family: "Bricolage";
+  src: url("bricolage-subset.woff2") format("woff2");
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+:root {
+  /* Same tokens as index.html. The project has no accent colour anywhere, so
+     neither does this page — change types are told apart by mark and weight,
+     never by hue. */
+  --void:  #08080a;
+  --panel: #121214;
+  --sunk:  #0d0d0f;
+  --edge:  rgba(255,255,255,.10);
+  --edge-soft: rgba(255,255,255,.055);
+  --lit:   #f4f4f5;
+  --mid:   #a8a8ad;
+  --dim:   #6e6e75;
+
+  --display: "Bricolage", ui-sans-serif, system-ui, sans-serif;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --gut: clamp(20px, 5vw, 64px);
+  --measure: 62ch;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--void);
+  color: var(--mid);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+a { color: var(--lit); text-decoration-color: rgba(255,255,255,.28); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--lit); }
+:focus-visible { outline: 2px solid var(--lit); outline-offset: 3px; border-radius: 4px; }
+img { max-width: 100%; height: auto; display: block; }
+
+.wrap {
+  width: 100%;
+  max-width: 1080px;
+  margin-inline: auto;
+  padding-inline: var(--gut);
+}
+
+/* ---------------------------------------------------------------- nav pill */
+.pill {
+  position: fixed;
+  top: 12px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px 8px 8px 18px;
+  border: 1px solid var(--edge);
+  border-radius: 20px;
+  background: rgba(16,16,18,.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--dim);
+  max-width: calc(100vw - 24px);
+}
+.pill .beacon {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--lit); flex: none;
+  animation: beacon 3.4s ease-in-out infinite;
+}
+@keyframes beacon { 0%,100% { opacity: .3 } 50% { opacity: 1 } }
+.pill b { color: var(--mid); font-weight: 500; white-space: nowrap; }
+.pill a.ghost {
+  padding: 5px 13px;
+  border: 1px solid var(--edge);
+  border-radius: 13px;
+  color: var(--lit);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .18s ease, border-color .18s ease;
+}
+.pill a.ghost:hover { background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.2); }
+
+/* ------------------------------------------------------------------ header */
+.masthead { padding-block: 118px clamp(30px, 5vw, 52px); }
+.masthead h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: clamp(34px, 6vw, 60px);
+  line-height: 1.02;
+  letter-spacing: -.03em;
+  color: var(--lit);
+  text-wrap: balance;
+}
+.masthead p { margin: 18px 0 0; max-width: min(var(--measure), 100%); font-size: clamp(15px, 1.8vw, 17px); }
+
+.eyebrow {
+  display: flex; align-items: center; gap: 18px;
+  margin-bottom: clamp(20px, 3vw, 30px);
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--dim);
+}
+.eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--edge-soft); }
+
+/* -------------------------------------------------------------- the layout */
+/* Two columns on desktop: a version index that stays put, and the releases.
+   The index is what makes an archive navigable rather than a long scroll. */
+.shell { display: grid; grid-template-columns: 172px minmax(0, 1fr); gap: clamp(28px, 5vw, 64px); align-items: start; }
+
+.index { position: sticky; top: 84px; }
+.index h2 {
+  margin: 0 0 14px;
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
+}
+.index ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.index a {
+  display: block; padding: 7px 11px;
+  border-radius: 9px;
+  border-left: 2px solid transparent;
+  font-family: var(--mono); font-size: 12.5px; letter-spacing: .02em;
+  color: var(--dim); text-decoration: none;
+  transition: color .18s ease, background .18s ease, border-color .18s ease;
+}
+.index a:hover { color: var(--lit); background: rgba(255,255,255,.045); }
+.index a[aria-current="true"] {
+  color: var(--lit);
+  border-left-color: var(--lit);
+  background: rgba(255,255,255,.055);
+}
+.index a small { display: block; font-size: 10.5px; color: var(--dim); letter-spacing: .06em; margin-top: 1px; }
+.index a[aria-current="true"] small { color: var(--mid); }
+
+/* ------------------------------------------------------------- one release */
+.release { padding-bottom: clamp(48px, 8vw, 96px); scroll-margin-top: 84px; }
+.release + .release { border-top: 1px solid var(--edge-soft); padding-top: clamp(40px, 6vw, 72px); }
+
+.stamp { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.stamp .v {
+  font-family: var(--mono); font-size: 12px; letter-spacing: .1em;
+  color: var(--lit);
+  padding: 4px 11px;
+  border: 1px solid var(--edge);
+  border-radius: 11px;
+}
+.stamp time { font-family: var(--mono); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+.stamp .latest {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--void); background: var(--lit);
+  padding: 3px 9px; border-radius: 9px;
+}
+
+.release h2 {
+  margin: 0 0 14px;
+  font-family: var(--display); font-weight: 600;
+  font-size: clamp(23px, 3.4vw, 34px);
+  line-height: 1.12; letter-spacing: -.02em;
+  color: var(--lit); text-wrap: balance;
+  max-width: 22ch;
+}
+.release .summary { margin: 0 0 26px; max-width: min(var(--measure), 100%); font-size: clamp(15px, 1.7vw, 16.5px); }
+
+/* Change list. Types are distinguished by a monospace mark and the weight of
+   the text, not by colour — the project is greyscale end to end. */
+.changes { list-style: none; margin: 0 0 30px; padding: 0; display: flex; flex-direction: column; gap: 9px; max-width: min(var(--measure), 100%); }
+.changes li { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 14px; align-items: baseline; font-size: 15px; }
+.changes .mark {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--dim); text-align: right; padding-top: 2px;
+}
+.changes li[data-type="added"] .mark,
+.changes li[data-type="removed"] .mark { color: var(--mid); }
+.changes li[data-type="added"] .body { color: var(--lit); }
+
+/* ------------------------------------------------------------------- shots */
+.shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.shot {
+  margin: 0;
+  background: var(--sunk);
+  border: 1px solid var(--edge-soft);
+  border-radius: 14px;
+  padding: 12px;
+}
+.shot.wide { grid-column: 1 / -1; }
+.shot img { width: 100%; border-radius: 9px; }
+.shot figcaption { padding: 13px 4px 3px; }
+.shot b { display: block; color: var(--lit); font-weight: 600; font-size: 14.5px; letter-spacing: -.01em; }
+.shot span { display: block; margin-top: 4px; color: var(--dim); font-size: 13px; line-height: 1.5; }
+
+/* ------------------------------------------------------------------ footer */
+footer { padding-block: 40px 64px; border-top: 1px solid var(--edge-soft); }
+footer p { margin: 0; font-family: var(--mono); font-size: 11.5px; letter-spacing: .06em; color: var(--dim); }
+
+.fallback { padding: 26px; border: 1px solid var(--edge); border-radius: 14px; background: var(--sunk); max-width: min(var(--measure), 100%); }
+.fallback code { font-family: var(--mono); font-size: 13px; color: var(--lit); }
+
+@media (max-width: 860px) {
+  /* minmax(0, 1fr) rather than 1fr: a grid item defaults to min-width:auto,
+     which refuses to shrink below its content and pushes long prose past the
+     right edge of a phone. */
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  /* The index becomes a horizontal rail above the releases rather than
+     disappearing — on a phone it is still the fastest way to reach a version. */
+  .index { position: static; }
+  .index ol { flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 6px; }
+  .index a { border-left: none; border-bottom: 2px solid transparent; white-space: nowrap; }
+  .index a[aria-current="true"] { border-left-color: transparent; border-bottom-color: var(--lit); }
+  .index a small { display: none; }
+  .shots { grid-template-columns: 1fr; }
+  .shot.wide { grid-column: auto; }
+  .changes li { grid-template-columns: 1fr; gap: 2px; }
+  .changes .mark { text-align: left; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+</style>
+</head>
+<body>
+
+<nav class="pill">
+  <span class="beacon" aria-hidden="true"></span>
+  <b>changelog</b>
+  <a class="ghost" href="index.html">Overview&nbsp;↗</a>
+</nav>
+
+<header class="masthead wrap">
+  <h1>Every release, newest first</h1>
+  <p>
+    What changed in Dynamic Island, why it changed, and what it looks like.
+    Each entry is written when the work lands, not reconstructed afterwards.
+  </p>
+</header>
+
+<main class="wrap">
+  <div class="shell">
+    <nav class="index" aria-label="Releases">
+      <h2>Versions</h2>
+      <ol id="version-index"></ol>
+    </nav>
+
+    <div id="releases">
+      <noscript>
+        <div class="fallback">
+          <p>This page builds itself from <code>changelog.json</code>, which needs JavaScript.
+          You can read the same entries directly in that file, or in the repository's commit history.</p>
+        </div>
+      </noscript>
+    </div>
+  </div>
+</main>
+
+<footer class="wrap">
+  <p>Dynamic Island for Quickshell · <a href="index.html">Overview</a> · <a href="https://github.com/lunanoir21/quickshell-dynamic-island">GitHub</a></p>
+</footer>
+
+<script>
+// The page is generated from changelog.json so that adding a release means
+// editing one data file, not hand-writing markup in two places and letting
+// them drift.
+const TYPE_LABEL = { added: "New", changed: "Changed", fixed: "Fixed", removed: "Removed" };
+
+const el = (tag, props = {}, ...kids) => {
+  const node = Object.assign(document.createElement(tag), props);
+  for (const kid of kids) if (kid != null) node.append(kid);
+  return node;
+};
+
+// Dates are stored as plain ISO strings. Formatted in English rather than the
+// reader's locale, because the rest of the page is written in English and a
+// date reading "16 Ağustos 2026" under an English heading is just a seam.
+const formatDate = (iso) => {
+  const d = new Date(iso + "T00:00:00");
+  return Number.isNaN(d.valueOf())
+    ? iso
+    : d.toLocaleDateString("en-GB", { year: "numeric", month: "long", day: "numeric" });
+};
+
+function renderRelease(release, isLatest) {
+  const id = "v" + release.version;
+  const section = el("section", { className: "release", id });
+
+  const stamp = el("div", { className: "stamp" },
+    el("span", { className: "v", textContent: release.version }),
+    el("time", { dateTime: release.date, textContent: formatDate(release.date) }));
+  if (isLatest) stamp.append(el("span", { className: "latest", textContent: "Latest" }));
+  section.append(stamp);
+
+  section.append(el("h2", { textContent: release.title }));
+  if (release.summary) section.append(el("p", { className: "summary", textContent: release.summary }));
+
+  if (release.changes?.length) {
+    const list = el("ul", { className: "changes" });
+    for (const change of release.changes) {
+      const item = el("li");
+      item.dataset.type = change.type || "changed";
+      item.append(
+        el("span", { className: "mark", textContent: TYPE_LABEL[change.type] || "Changed" }),
+        el("span", { className: "body", textContent: change.text }));
+      list.append(item);
+    }
+    section.append(list);
+  }
+
+  if (release.shots?.length) {
+    const grid = el("div", { className: "shots" });
+    for (const shot of release.shots) {
+      const figure = el("figure", { className: "shot" + (shot.wide ? " wide" : "") });
+      figure.append(el("img", { src: shot.src, alt: shot.alt || "", loading: "lazy", decoding: "async" }));
+      if (shot.caption || shot.text) {
+        figure.append(el("figcaption", {},
+          shot.caption ? el("b", { textContent: shot.caption }) : null,
+          shot.text ? el("span", { textContent: shot.text }) : null));
+      }
+      grid.append(figure);
+    }
+    section.append(grid);
+  }
+
+  return section;
+}
+
+fetch("changelog.json")
+  .then((response) => {
+    if (!response.ok) throw new Error(response.status + " " + response.statusText);
+    return response.json();
+  })
+  .then(({ releases = [] }) => {
+    const host = document.getElementById("releases");
+    const index = document.getElementById("version-index");
+
+    releases.forEach((release, i) => {
+      host.append(renderRelease(release, i === 0));
+      index.append(el("li", {},
+        el("a", { href: "#v" + release.version },
+          el("span", { textContent: release.version }),
+          el("small", { textContent: release.title }))));
+    });
+
+    // Mark the version the reader is actually looking at. Without this the
+    // index tells you what exists but not where you are in it.
+    const links = new Map([...index.querySelectorAll("a")].map((a) => [a.getAttribute("href").slice(1), a]));
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        for (const a of links.values()) a.removeAttribute("aria-current");
+        links.get(entry.target.id)?.setAttribute("aria-current", "true");
+      }
+    }, { rootMargin: "-84px 0px -70% 0px" });
+    for (const section of host.querySelectorAll(".release")) observer.observe(section);
+
+    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+  })
+  .catch((error) => {
+    document.getElementById("releases").append(
+      el("div", { className: "fallback" },
+        el("p", {}, "Could not load changelog.json — " + error.message + ". "),
+        el("p", {}, "Opening this file straight from disk will do that; it needs to be served over http. Try ",
+          el("code", { textContent: "python -m http.server" }),
+          " from the docs folder.")));
+  });
+</script>
+
+</body>
+</html>

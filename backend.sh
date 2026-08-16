@@ -6,8 +6,6 @@ set -u
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 base_dir="${XDG_RUNTIME_DIR:-/tmp}/quickshell/dynamic-island"
-weather_cache="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/weather.json"
-weather_lock="$base_dir/weather.lock"
 slow_cache="$base_dir/slow.json"
 slow_lock="$base_dir/slow.lock"
 call_state="$base_dir/call.json"
@@ -23,7 +21,6 @@ thumbnail_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/thumbna
 # directory is always in place long before anything tries to write to it.
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/dynamic-island"
 mkdir -p "$base_dir"
-mkdir -p "$(dirname "$weather_cache")"
 mkdir -p "$thumbnail_dir"
 mkdir -p "$config_dir"
 
@@ -33,7 +30,6 @@ call_app_pattern='signal|telegram|whatsapp'
 
 # Seconds a cached value may go stale before a background refresh is kicked off.
 slow_ttl=4
-weather_ttl=900
 # Only applies to "we looked and there were none" markers. A track that has
 # lyrics keeps them forever (they don't change), but a miss is worth retrying
 # eventually since LRCLIB is community-contributed and gains tracks over time.
@@ -215,38 +211,6 @@ lyrics_for() {
     return 0
 }
 
-# The weather fetch takes seconds. Without a lock every poll during that window
-# would start another curl, piling up dozens of concurrent requests.
-refresh_weather() {
-    (( $(file_age "$weather_cache") > weather_ttl )) || return 0
-    mkdir "$weather_lock" 2>/dev/null || return 0
-    (
-        trap 'rmdir "$weather_lock" 2>/dev/null' EXIT
-        local location latitude longitude response code temp apparent condition
-        location=$(curl -fsSL --max-time 4 'https://ipapi.co/json/' 2>/dev/null || true)
-        latitude=$(jq -r '.latitude // empty' <<<"$location" 2>/dev/null)
-        longitude=$(jq -r '.longitude // empty' <<<"$location" 2>/dev/null)
-        [[ -n "$latitude" && -n "$longitude" ]] || exit 0
-        response=$(curl -fsSL --max-time 5 "https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,apparent_temperature,weather_code&timezone=auto" 2>/dev/null || true)
-        temp=$(jq -r '.current.temperature_2m // empty' <<<"$response")
-        apparent=$(jq -r '.current.apparent_temperature // empty' <<<"$response")
-        code=$(jq -r '.current.weather_code // empty' <<<"$response")
-        [[ -n "$temp" && -n "$code" ]] || exit 0
-        case "$code" in
-            0) condition="󰖙" ;;
-            1|2|3) condition="󰖕" ;;
-            45|48) condition="󰖑" ;;
-            51|53|55|56|57|61|63|65|66|67|80|81|82) condition="󰖗" ;;
-            71|73|75|77|85|86) condition="󰖘" ;;
-            95|96|99) condition="󰙾" ;;
-            *) condition="󰖐" ;;
-        esac
-        jq -nc --arg icon "$condition" --arg temp "${temp}°C" --arg apparent "${apparent}°C" \
-            '{icon:$icon,temp:$temp,apparent:$apparent}' > "$weather_cache.tmp"
-        mv "$weather_cache.tmp" "$weather_cache"
-    ) >/dev/null 2>&1 &
-}
-
 # Everything here costs 10-200ms per call, which is far too slow to run on every
 # poll. It is refreshed in the background and the snapshot reads the last result.
 refresh_slow() {
@@ -256,7 +220,6 @@ refresh_slow() {
         trap 'rmdir "$slow_lock" 2>/dev/null' EXIT
 
         local battery_time bt_device bt_powered camera_active wifi wifi_powered
-        local weather_temp weather_icon weather_script
 
         battery_time=""
         if command -v upower >/dev/null 2>&1; then
@@ -281,26 +244,10 @@ refresh_slow() {
             [[ "$(nmcli radio wifi 2>/dev/null)" == "enabled" ]] || wifi_powered=false
         fi
 
-        weather_temp=""
-        weather_icon=""
-        # Optional hook for an existing weather script; overridable so the
-        # project does not depend on one particular dotfiles layout.
-        weather_script="${DI_WEATHER_SCRIPT:-$HOME/.config/hypr/scripts/quickshell/calendar/weather.sh}"
-        if [[ -x "$weather_script" ]]; then
-            local configured_temp configured_icon
-            configured_temp=$(timeout 3 "$weather_script" --current-temp 2>/dev/null || true)
-            configured_icon=$(timeout 3 "$weather_script" --current-icon 2>/dev/null || true)
-            if [[ -n "$configured_temp" && "$configured_temp" != "0.0°C" ]]; then
-                weather_temp="$configured_temp"
-                weather_icon="$configured_icon"
-            fi
-        fi
-
         jq -nc \
             --arg batteryTime "$battery_time" --arg bluetooth "$bt_device" --argjson bluetoothPowered "$bt_powered" \
             --argjson cameraActive "$camera_active" --arg wifi "$wifi" --argjson wifiPowered "$wifi_powered" \
-            --arg weatherTemp "$weather_temp" --arg weatherIcon "$weather_icon" \
-            '{batteryTime:$batteryTime,bluetooth:$bluetooth,bluetoothPowered:$bluetoothPowered,cameraActive:$cameraActive,wifi:$wifi,wifiPowered:$wifiPowered,weatherTemp:$weatherTemp,weatherIcon:$weatherIcon}' \
+            '{batteryTime:$batteryTime,bluetooth:$bluetooth,bluetoothPowered:$bluetoothPowered,cameraActive:$cameraActive,wifi:$wifi,wifiPowered:$wifiPowered}' \
             > "$slow_cache.tmp"
         mv "$slow_cache.tmp" "$slow_cache"
     ) >/dev/null 2>&1 &
@@ -425,7 +372,6 @@ json_snapshot() {
     # the ~800ms polls when nobody is looking at it.
     local want="${1:-}"
 
-    refresh_weather
     refresh_slow
 
     local media status title artist art length_us length_s position_s player shuffle loop track_url
@@ -579,10 +525,9 @@ json_snapshot() {
     [[ "$want" == *queue* ]] && queue_json=$(track_queue "$selected_player")
     [[ -n "$queue_json" ]] || queue_json='{"supported":false,"tracks":[]}'
 
-    local weather slow
-    [[ -s "$weather_cache" ]] && weather=$(<"$weather_cache") || weather='{"icon":"󰖐","temp":"--°","apparent":"--°"}'
+    local slow
     [[ -s "$slow_cache" ]] && slow=$(<"$slow_cache") \
-        || slow='{"batteryTime":"","bluetooth":"","bluetoothPowered":false,"cameraActive":false,"wifi":"","wifiPowered":true,"weatherTemp":"","weatherIcon":""}'
+        || slow='{"batteryTime":"","bluetooth":"","bluetoothPowered":false,"cameraActive":false,"wifi":"","wifiPowered":true}'
 
     # A single jq invocation assembles the payload; the cached blobs are merged
     # in the filter so no extra processes are needed to read them.
@@ -593,7 +538,7 @@ json_snapshot() {
         --argjson volume "$volume" --argjson muted "$muted" --argjson micVolume "$mic_volume" \
         --argjson micMuted "$mic_muted" --argjson micActive "$mic_active" --argjson brightness "$brightness" \
         --argjson battery "$battery" --arg batteryStatus "$battery_status" \
-        --argjson weather "$weather" --argjson slow "$slow" \
+        --argjson slow "$slow" \
         --arg activeWindow "$active_window" --argjson fullscreen "$fullscreen" \
         --argjson callActive "$call_active" --arg callApp "$call_app" --argjson callDuration "$call_duration" \
         --argjson players "$players_json" --argjson apps "$apps_json" \
@@ -606,11 +551,6 @@ json_snapshot() {
             volume:$volume, muted:$muted, micVolume:$micVolume, micMuted:$micMuted, micActive:$micActive,
             brightness:$brightness, battery:$battery, batteryStatus:$batteryStatus,
             batteryTime:$slow.batteryTime, bluetooth:$slow.bluetooth, bluetoothPowered:$slow.bluetoothPowered,
-            weather: {
-                icon: (if ($slow.weatherIcon | length) > 0 then $slow.weatherIcon else $weather.icon end),
-                temp: (if ($slow.weatherTemp | length) > 0 then $slow.weatherTemp else $weather.temp end),
-                apparent: $weather.apparent
-            },
             cameraActive:$slow.cameraActive,
             call: {active:$callActive, app:$callApp, duration:$callDuration},
             system: {wifi:$slow.wifi, wifiPowered:$slow.wifiPowered, activeWindow:$activeWindow, fullscreen:$fullscreen}
@@ -622,16 +562,9 @@ case "${1:-snapshot}" in
     play-pause|next|previous)
         resolve_player
         timeout 2 playerctl "${player_args[@]}" "$1" >/dev/null 2>&1 || true ;;
-    seek)
-        resolve_player
-        timeout 2 playerctl "${player_args[@]}" position "${2:-0}" >/dev/null 2>&1 || true ;;
     select-player)
         printf '%s' "${2:-}" > "$player_state.tmp" && mv "$player_state.tmp" "$player_state" ;;
-    volume)
-        wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ "${2:-50}%" >/dev/null 2>&1 || true ;;
     mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle >/dev/null 2>&1 || true ;;
-    mic-volume)
-        wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SOURCE@ "${2:-50}%" >/dev/null 2>&1 || true ;;
     mic-mute) wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle >/dev/null 2>&1 || true ;;
     # $2 is the comma-separated stream list one app owns (see app_streams), so
     # every stream of that app moves together and none drift out of sync.
@@ -655,7 +588,6 @@ case "${1:-snapshot}" in
         current=$(playerctl "${player_args[@]}" loop 2>/dev/null || echo None)
         [[ "$current" == "None" ]] && next=Playlist || { [[ "$current" == "Playlist" ]] && next=Track || next=None; }
         playerctl "${player_args[@]}" loop "$next" >/dev/null 2>&1 || true ;;
-    brightness) brightnessctl set "${2:-50}%" >/dev/null 2>&1 || true ;;
     lyrics) lyrics_for "${2:-}" "${3:-}" "${4:-0}" ;;
     # Quick-settings tiles. Read the current power state fresh rather than
     # trusting the (up to 15s stale) slow cache, so a rapid toggle always
