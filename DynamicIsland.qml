@@ -406,6 +406,16 @@ PanelWindow {
     property bool compactMediaControls: true
     property string mediaAnimationStyle: "wave"
     property int mediaAnimationIntensity: 100
+    property bool mediaAutoExpandTrack: true
+    property bool mediaColorGlow: true
+    property bool mediaProgressBar: true
+
+    property int timerDefaultMinutes: 5
+    property int focusDefaultMinutes: 25
+    property int breakDefaultMinutes: 5
+    property bool autoStartBreak: false
+    property string timeChimeVolume: "normal"
+
     property bool appVolumeEnabled: true
     // "chips" names the players, "logos" shows their icons only, "segment" puts
     // one segmented pill in the status strip. Which reads best depends on how
@@ -454,6 +464,14 @@ PanelWindow {
             compactMediaControls: window.compactMediaControls,
             mediaAnimationStyle: window.mediaAnimationStyle,
             mediaAnimationIntensity: window.mediaAnimationIntensity,
+            mediaAutoExpandTrack: window.mediaAutoExpandTrack,
+            mediaColorGlow: window.mediaColorGlow,
+            mediaProgressBar: window.mediaProgressBar,
+            timerDefaultMinutes: window.timerDefaultMinutes,
+            focusDefaultMinutes: window.focusDefaultMinutes,
+            breakDefaultMinutes: window.breakDefaultMinutes,
+            autoStartBreak: window.autoStartBreak,
+            timeChimeVolume: window.timeChimeVolume,
             appVolumeEnabled: window.appVolumeEnabled,
             queueEnabled: window.queueEnabled,
             playerSwitcherStyle: window.playerSwitcherStyle,
@@ -511,6 +529,16 @@ PanelWindow {
             window.mediaAnimationStyle = ["wave", "live", "calm"].indexOf(savedAnimation) !== -1
                                        ? savedAnimation : window.mediaAnimationStyle
             window.mediaAnimationIntensity = readChoice(p, "mediaAnimationIntensity", [45, 70, 100], window.mediaAnimationIntensity)
+            window.mediaAutoExpandTrack = readBool(p, "mediaAutoExpandTrack", window.mediaAutoExpandTrack)
+            window.mediaColorGlow = readBool(p, "mediaColorGlow", window.mediaColorGlow)
+            window.mediaProgressBar = readBool(p, "mediaProgressBar", window.mediaProgressBar)
+
+            window.timerDefaultMinutes = readChoice(p, "timerDefaultMinutes", [1, 3, 5, 10, 15, 25, 30], window.timerDefaultMinutes)
+            window.focusDefaultMinutes = readChoice(p, "focusDefaultMinutes", [15, 20, 25, 30, 45, 60], window.focusDefaultMinutes)
+            window.breakDefaultMinutes = readChoice(p, "breakDefaultMinutes", [3, 5, 10, 15], window.breakDefaultMinutes)
+            window.autoStartBreak = readBool(p, "autoStartBreak", window.autoStartBreak)
+            window.timeChimeVolume = readChoice(p, "timeChimeVolume", ["soft", "normal", "loud"], window.timeChimeVolume)
+
             window.appVolumeEnabled = readBool(p, "appVolumeEnabled", window.appVolumeEnabled)
             window.queueEnabled = readBool(p, "queueEnabled", window.queueEnabled)
             window.playerSwitcherStyle = readChoice(p, "playerSwitcherStyle",

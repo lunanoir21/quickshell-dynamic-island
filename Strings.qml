@@ -152,18 +152,62 @@ QtObject {
     // Sidebar sections
     readonly property string secAppearance: tr ? "Görünüm" : "Appearance"
     readonly property string secClock: tr ? "Saat" : "Clock"
+    readonly property string secTimeTools: tr ? "Zaman Araçları" : "Time Tools"
+    readonly property string secMedia: tr ? "Oynatıcı" : "Player"
     readonly property string secCalls: tr ? "Aramalar" : "Calls"
     readonly property string secNotifications: tr ? "Bildirimler" : "Notifications"
-    readonly property string secMedia: tr ? "Medya" : "Media"
+    readonly property string secPanels: tr ? "Paneller" : "Panels"
     readonly property string secGeneral: tr ? "Genel" : "General"
 
     // Section subtitles
     readonly property string secAppearanceSub: tr ? "Renkler ve yüzeyler" : "Colours and surfaces"
     readonly property string secClockSub: tr ? "Biçim ve çizim stili" : "Format and drawing style"
+    readonly property string secTimeToolsSub: tr ? "Zamanlayıcı, kronometre, odak ve alarm ayarları" : "Timer, stopwatch, focus and alarm settings"
+    readonly property string secMediaSub: tr ? "Görsel öğeler, spektrum, sözler ve kontroller" : "Visual elements, spectrum, lyrics and controls"
     readonly property string secCallsSub: tr ? "Gelen arama davranışı" : "Incoming call behaviour"
     readonly property string secNotificationsSub: tr ? "Kart süresi ve içeriği" : "Card duration and content"
-    readonly property string secMediaSub: tr ? "Oynatıcı paneli" : "Player panel"
+    readonly property string secPanelsSub: tr ? "Şeritteki çiplerin açtığı ek paneller" : "The extra panels the strip's chips open"
     readonly property string secGeneralSub: tr ? "Dil ve pencere" : "Language and window"
+
+    // Group labels for Time Tools
+    readonly property string grpTimePresets: tr ? "Hazır Süreler" : "Default Presets"
+    readonly property string grpTimePresetsNote: tr ? "Zamanlayıcı, odak oturumu ve mola için varsayılan dakikalar" : "Default minutes for timer, focus sessions and breaks"
+    readonly property string grpTimeChime: tr ? "Ses ve Uyarılar" : "Sound & Chime"
+    readonly property string grpTimeChimeNote: tr ? "Zaman bitiminde çalacak melodi ve ses yüksekliği tercihleri" : "Chime melody and volume level preferences upon finish"
+    readonly property string grpTimeBehaviour: tr ? "Zamanlayıcı Davranışı" : "Timer Behaviour"
+    readonly property string grpTimeBehaviourNote: tr ? "Odak oturumu bittiğinde otomatik mola ve kart yönetimi" : "Auto-break trigger and completion card behavior"
+
+    // Time Tools settings
+    readonly property string setTimerDefault: tr ? "Varsayılan Zamanlayıcı" : "Default Timer"
+    readonly property string setTimerDefaultDesc: tr ? "Zamanlayıcı açıldığında seçili hazır dakika" : "Default minute preset when timer starts"
+    readonly property string setFocusDefault: tr ? "Odak Oturumu Süresi" : "Focus Session Duration"
+    readonly property string setFocusDefaultDesc: tr ? "Pomodoro odaklanma oturumu süresi" : "Pomodoro focus session duration"
+    readonly property string setBreakDefault: tr ? "Mola Süresi" : "Break Duration"
+    readonly property string setBreakDefaultDesc: tr ? "Odak oturumu sonrasındaki dinlenme molası" : "Rest break duration following focus"
+    readonly property string setAutoStartBreak: tr ? "Otomatik Mola Başlat" : "Auto-start Break"
+    readonly property string setAutoStartBreakDesc: tr ? "Odak bittiğinde mola sayacını doğrudan çalıştır" : "Start break countdown automatically when focus ends"
+    readonly property string setChimeVolume: tr ? "Melodi Ses Seviyesi" : "Chime Volume"
+    readonly property string setChimeVolumeDesc: tr ? "Uyarı sesinin yükseklik kademesi" : "Volume level for finish notifications"
+    readonly property string chimeVolSoft: tr ? "Hafif" : "Soft"
+    readonly property string chimeVolNormal: tr ? "Normal" : "Normal"
+    readonly property string chimeVolLoud: tr ? "Yüksek" : "Loud"
+    readonly property string testChime: tr ? "Melodiyi Test Et" : "Test Chime"
+
+    // Group labels for Player
+    readonly property string grpPlayerVisuals: tr ? "Görsel Öğeler" : "Visual Elements"
+    readonly property string grpPlayerVisualsNote: tr ? "Albüm kapağı, frekans spektrumu, şarkı sözleri ve ilerleme çubuğu" : "Album art, frequency spectrum, lyrics and progress line"
+    readonly property string grpPlayerBehavior: tr ? "Oynatıcı Davranışı" : "Player Behaviour"
+    readonly property string grpPlayerBehaviorNote: tr ? "Şarkı değişiminde otomatik genişleme ve mini mod" : "Auto-expand on track changes and mini player controls"
+    readonly property string grpPlayerEffects: tr ? "Görsel Efektler & Animasyon" : "Visual Effects & Motion"
+    readonly property string grpPlayerEffectsNote: tr ? "Cava spektrumu dalga stili ve renk parlaması" : "Cava spectrum wave style and color glow"
+
+    // Player settings
+    readonly property string setAutoExpandTrack: tr ? "Parça Değişiminde Otomatik Aç" : "Auto-expand on Track Change"
+    readonly property string setAutoExpandTrackDesc: tr ? "Şarkı değiştiğinde adayı kısa süreliğine genişlet" : "Briefly expand the island when song changes"
+    readonly property string setColorGlow: tr ? "Albüm Rengi Parlaması" : "Album Color Glow"
+    readonly property string setColorGlowDesc: tr ? "Albüm kapağının tonunda yumuşak arka plan efekti" : "Soft background glow matching album artwork"
+    readonly property string setProgressBar: tr ? "İlerleme Zaman Çubuğu" : "Progress Timeline Bar"
+    readonly property string setProgressBarDesc: tr ? "Parçanın geçen ve kalan süresini gösteren hat" : "Interactive line showing track position and duration"
 
     // Group labels
     readonly property string grpTheme: tr ? "Tema" : "Theme"
@@ -238,14 +282,6 @@ QtObject {
     // Group headings and their one-line explanations. Each says where on the
     // island the group's settings actually show up, so a setting can be found
     // by remembering what it looked like rather than what it was called.
-    // Its own section rather than more groups under Media: these are the panels
-    // the status-strip chips open, and Media had grown past twice the height of
-    // every other section, which is where "I can't find the thing I want to turn
-    // off" comes from.
-    readonly property string secPanels: tr ? "Paneller" : "Panels"
-    readonly property string secPanelsSub: tr
-        ? "Şeritteki çiplerin açtığı ek paneller"
-        : "The extra panels the strip's chips open"
 
     readonly property string grpThemeNote: tr
         ? "Ada, ayarlar ve bildirimlerin tamamının renk paleti"

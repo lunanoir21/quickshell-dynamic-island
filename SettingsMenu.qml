@@ -223,7 +223,7 @@ PanelWindow {
                     }
 
                     Repeater {
-                        model: ["appearance", "clock", "calls", "notifications", "media", "panels", "general"]
+                        model: ["appearance", "clock", "timetools", "media", "calls", "notifications", "panels", "general"]
 
                         NavItem {
                             required property string modelData
@@ -231,9 +231,10 @@ PanelWindow {
                             icon: {
                                 switch (modelData) {
                                 case "clock": return "󰥔"
+                                case "timetools": return "󰔛"
+                                case "media": return "󰎈"
                                 case "calls": return "󰏶"
                                 case "notifications": return "󰂚"
-                                case "media": return "󰎈"
                                 case "panels": return "󰕾"
                                 case "general": return "󰖟"
                                 default: return "󰸌"
@@ -242,9 +243,10 @@ PanelWindow {
                             label: {
                                 switch (modelData) {
                                 case "clock": return settingsWin.i18n.secClock
+                                case "timetools": return settingsWin.i18n.secTimeTools
+                                case "media": return settingsWin.i18n.secMedia
                                 case "calls": return settingsWin.i18n.secCalls
                                 case "notifications": return settingsWin.i18n.secNotifications
-                                case "media": return settingsWin.i18n.secMedia
                                 case "panels": return settingsWin.i18n.secPanels
                                 case "general": return settingsWin.i18n.secGeneral
                                 default: return settingsWin.i18n.secAppearance
@@ -298,9 +300,10 @@ PanelWindow {
                             text: {
                                 switch (settingsWin.section) {
                                 case "clock": return settingsWin.i18n.secClock
+                                case "timetools": return settingsWin.i18n.secTimeTools
+                                case "media": return settingsWin.i18n.secMedia
                                 case "calls": return settingsWin.i18n.secCalls
                                 case "notifications": return settingsWin.i18n.secNotifications
-                                case "media": return settingsWin.i18n.secMedia
                                 case "panels": return settingsWin.i18n.secPanels
                                 case "general": return settingsWin.i18n.secGeneral
                                 default: return settingsWin.i18n.secAppearance
@@ -343,9 +346,10 @@ PanelWindow {
                         text: {
                             switch (settingsWin.section) {
                             case "clock": return settingsWin.i18n.secClockSub
+                            case "timetools": return settingsWin.i18n.secTimeToolsSub
+                            case "media": return settingsWin.i18n.secMediaSub
                             case "calls": return settingsWin.i18n.secCallsSub
                             case "notifications": return settingsWin.i18n.secNotificationsSub
-                            case "media": return settingsWin.i18n.secMediaSub
                             case "panels": return settingsWin.i18n.secPanelsSub
                             case "general": return settingsWin.i18n.secGeneralSub
                             default: return settingsWin.i18n.secAppearanceSub
@@ -611,11 +615,191 @@ PanelWindow {
                             }
                         }
 
-                        // ----------------------------------------------- media
+                        // ------------------------------------------- time tools
+                        SettingGroup {
+                            visible: settingsWin.section === "timetools"
+                            label: settingsWin.i18n.grpTimePresets
+                            note: settingsWin.i18n.grpTimePresetsNote
+
+                            ChoiceRow {
+                                Layout.fillWidth: true
+                                icon: "󰔛"
+                                label: settingsWin.i18n.setTimerDefault
+                                detail: settingsWin.i18n.setTimerDefaultDesc
+                                options: ["1 min", "3 min", "5 min", "10 min", "15 min", "25 min"]
+                                values: [1, 3, 5, 10, 15, 25]
+                                current: settingsWin.host.timerDefaultMinutes
+                                onPicked: value => {
+                                    settingsWin.host.timerDefaultMinutes = value
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            ChoiceRow {
+                                Layout.fillWidth: true
+                                icon: "󰄉"
+                                label: settingsWin.i18n.setFocusDefault
+                                detail: settingsWin.i18n.setFocusDefaultDesc
+                                options: ["15 min", "20 min", "25 min", "30 min", "45 min", "60 min"]
+                                values: [15, 20, 25, 30, 45, 60]
+                                current: settingsWin.host.focusDefaultMinutes
+                                onPicked: value => {
+                                    settingsWin.host.focusDefaultMinutes = value
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            ChoiceRow {
+                                Layout.fillWidth: true
+                                icon: "󰅶"
+                                label: settingsWin.i18n.setBreakDefault
+                                detail: settingsWin.i18n.setBreakDefaultDesc
+                                options: ["3 min", "5 min", "10 min", "15 min"]
+                                values: [3, 5, 10, 15]
+                                current: settingsWin.host.breakDefaultMinutes
+                                onPicked: value => {
+                                    settingsWin.host.breakDefaultMinutes = value
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+                        }
+
+                        SettingGroup {
+                            visible: settingsWin.section === "timetools"
+                            label: settingsWin.i18n.grpTimeChime
+                            note: settingsWin.i18n.grpTimeChimeNote
+
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰎈"
+                                label: settingsWin.i18n.setChime
+                                detail: settingsWin.i18n.setChimeDesc
+                                checked: settingsWin.host.timeChimeEnabled
+                                onToggled: {
+                                    settingsWin.host.timeChimeEnabled = !settingsWin.host.timeChimeEnabled
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            ChoiceRow {
+                                Layout.fillWidth: true
+                                icon: "󰕩"
+                                label: settingsWin.i18n.setChimeSound
+                                detail: settingsWin.i18n.setChimeSoundDesc
+                                options: ["timesup", "chime1", "chime2", "chime3", "chime4", "chime5", "chime6", "chime7", "chime8", "chime9", "chime10"]
+                                values: ["timesup", "chime1", "chime2", "chime3", "chime4", "chime5", "chime6", "chime7", "chime8", "chime9", "chime10"]
+                                current: settingsWin.host.chimeSound
+                                onPicked: value => {
+                                    settingsWin.host.chimeSound = value
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            ChoiceRow {
+                                Layout.fillWidth: true
+                                icon: "󰕾"
+                                label: settingsWin.i18n.setChimeVolume
+                                detail: settingsWin.i18n.setChimeVolumeDesc
+                                options: [settingsWin.i18n.chimeVolSoft, settingsWin.i18n.chimeVolNormal, settingsWin.i18n.chimeVolLoud]
+                                values: ["soft", "normal", "loud"]
+                                current: settingsWin.host.timeChimeVolume
+                                onPicked: value => {
+                                    settingsWin.host.timeChimeVolume = value
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                implicitHeight: 52
+                                radius: 14
+                                color: testBtnHit.containsMouse ? settingsWin.fixedChipHover : settingsWin.fixedChip
+                                Behavior on color { ColorAnimation { duration: 140 } }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 14
+                                    anchors.rightMargin: 14
+                                    spacing: 12
+
+                                    Text {
+                                        text: "󰓃"
+                                        color: "#3aa863"
+                                        font.family: settingsWin.host.iconFont
+                                        font.pixelSize: 18
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: settingsWin.i18n.testChime
+                                        color: settingsWin.fixedText
+                                        font.family: settingsWin.host.uiFont
+                                        font.weight: Font.DemiBold
+                                        font.pixelSize: 14
+                                    }
+
+                                    Rectangle {
+                                        implicitWidth: 86
+                                        implicitHeight: 30
+                                        radius: 10
+                                        color: settingsWin.fixedOn
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "󰐊  " + (settingsWin.i18n.tr ? "Çal" : "Play")
+                                            color: settingsWin.fixedOnText
+                                            font.family: settingsWin.host.uiFont
+                                            font.weight: Font.Bold
+                                            font.pixelSize: 12
+                                        }
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: testBtnHit
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onClicked: settingsWin.host.run(["chime", settingsWin.host.chimeSound])
+                                }
+                            }
+                        }
+
+                        SettingGroup {
+                            visible: settingsWin.section === "timetools"
+                            label: settingsWin.i18n.grpTimeBehaviour
+                            note: settingsWin.i18n.grpTimeBehaviourNote
+
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰔚"
+                                label: settingsWin.i18n.setAutoStartBreak
+                                detail: settingsWin.i18n.setAutoStartBreakDesc
+                                checked: settingsWin.host.autoStartBreak
+                                onToggled: {
+                                    settingsWin.host.autoStartBreak = !settingsWin.host.autoStartBreak
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+                        }
+
+                        // ----------------------------------------------- media (player)
                         SettingGroup {
                             visible: settingsWin.section === "media"
-                            label: settingsWin.i18n.grpPanel
-                            note: settingsWin.i18n.grpPanelNote
+                            label: settingsWin.i18n.grpPlayerVisuals
+                            note: settingsWin.i18n.grpPlayerVisualsNote
+
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰋩"
+                                label: settingsWin.i18n.setAlbumArt
+                                preview: Component { PvAlbumArt {} }
+                                detail: settingsWin.i18n.setAlbumArtDesc
+                                checked: settingsWin.host.mediaAlbumArtEnabled
+                                onToggled: {
+                                    settingsWin.host.mediaAlbumArtEnabled = !settingsWin.host.mediaAlbumArtEnabled
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
 
                             SettingRow {
                                 Layout.fillWidth: true
@@ -645,16 +829,22 @@ PanelWindow {
 
                             SettingRow {
                                 Layout.fillWidth: true
-                                icon: "󰋩"
-                                label: settingsWin.i18n.setAlbumArt
-                                preview: Component { PvAlbumArt {} }
-                                detail: settingsWin.i18n.setAlbumArtDesc
-                                checked: settingsWin.host.mediaAlbumArtEnabled
+                                icon: "󰔟"
+                                label: settingsWin.i18n.setProgressBar
+                                preview: Component { PvProgressBar {} }
+                                detail: settingsWin.i18n.setProgressBarDesc
+                                checked: settingsWin.host.mediaProgressBar
                                 onToggled: {
-                                    settingsWin.host.mediaAlbumArtEnabled = !settingsWin.host.mediaAlbumArtEnabled
+                                    settingsWin.host.mediaProgressBar = !settingsWin.host.mediaProgressBar
                                     settingsWin.host.saveSettings()
                                 }
                             }
+                        }
+
+                        SettingGroup {
+                            visible: settingsWin.section === "media"
+                            label: settingsWin.i18n.grpPlayerBehavior
+                            note: settingsWin.i18n.grpPlayerBehaviorNote
 
                             SettingRow {
                                 Layout.fillWidth: true
@@ -669,6 +859,63 @@ PanelWindow {
                                 }
                             }
 
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰍜"
+                                label: settingsWin.i18n.setAutoExpandTrack
+                                detail: settingsWin.i18n.setAutoExpandTrackDesc
+                                checked: settingsWin.host.mediaAutoExpandTrack
+                                onToggled: {
+                                    settingsWin.host.mediaAutoExpandTrack = !settingsWin.host.mediaAutoExpandTrack
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 2
+                                text: settingsWin.i18n.setMediaSurfaceDesc
+                                color: settingsWin.fixedMuted
+                                font.family: settingsWin.host.uiFont
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                                Layout.preferredHeight: contentHeight
+                            }
+
+                            SurfacePicker { Layout.fillWidth: true }
+                        }
+
+                        SettingGroup {
+                            visible: settingsWin.section === "media"
+                            label: settingsWin.i18n.grpPlayerEffects
+                            note: settingsWin.i18n.grpPlayerEffectsNote
+
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰌵"
+                                label: settingsWin.i18n.setColorGlow
+                                detail: settingsWin.i18n.setColorGlowDesc
+                                checked: settingsWin.host.mediaColorGlow
+                                onToggled: {
+                                    settingsWin.host.mediaColorGlow = !settingsWin.host.mediaColorGlow
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
+
+                            AnimationStylePicker { Layout.fillWidth: true }
+
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 2
+                                text: settingsWin.i18n.setAnimationIntensityDesc
+                                color: settingsWin.fixedMuted
+                                font.family: settingsWin.host.uiFont
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                                Layout.preferredHeight: contentHeight
+                            }
+
+                            IntensityPicker { Layout.fillWidth: true }
                         }
 
                         // Each panel that opens from the status strip gets its
@@ -727,27 +974,6 @@ PanelWindow {
                             }
                         }
 
-                        SettingGroup {
-                            visible: settingsWin.section === "media"
-                            label: settingsWin.i18n.grpMotion
-                            note: settingsWin.i18n.grpMotionNote
-
-                            AnimationStylePicker { Layout.fillWidth: true }
-
-                            Text {
-                                Layout.fillWidth: true
-                                Layout.topMargin: 2
-                                text: settingsWin.i18n.setAnimationIntensityDesc
-                                color: settingsWin.fixedMuted
-                                font.family: settingsWin.host.uiFont
-                                font.pixelSize: 13
-                                wrapMode: Text.WordWrap
-                                Layout.preferredHeight: contentHeight
-                            }
-
-                            IntensityPicker { Layout.fillWidth: true }
-                        }
-
                         // --------------------------------------------- general
                         SettingGroup {
                             visible: settingsWin.section === "general"
@@ -794,32 +1020,6 @@ PanelWindow {
                                 detail: settingsWin.i18n.setPinnedDesc
                                 checked: settingsWin.host.lockedOpen
                                 onToggled: settingsWin.host.lockedOpen = !settingsWin.host.lockedOpen
-                            }
-
-                            SettingRow {
-                                Layout.fillWidth: true
-                                icon: "󰎈"
-                                label: settingsWin.i18n.setChime
-                                detail: settingsWin.i18n.setChimeDesc
-                                checked: settingsWin.host.timeChimeEnabled
-                                onToggled: {
-                                    settingsWin.host.timeChimeEnabled = !settingsWin.host.timeChimeEnabled
-                                    settingsWin.host.saveSettings()
-                                }
-                            }
-
-                            ChoiceRow {
-                                Layout.fillWidth: true
-                                icon: "󰕩"
-                                label: settingsWin.i18n.setChimeSound
-                                detail: settingsWin.i18n.setChimeSoundDesc
-                                options: ["timesup (eski)", "chime1 (klasik 3 bip)", "chime2 (hızlı 3 bip)", "chime3 (alçak 2 bip)", "chime4 (dijital 5 bip)", "chime5 (derin 2 bip)", "chime6 (basit ding)", "chime7 (ding-dong)", "chime8 (alarm 5 bip)", "chime9 (yumuşak artan)", "chime10 (modern telefon)"]
-                                values: ["timesup", "chime1", "chime2", "chime3", "chime4", "chime5", "chime6", "chime7", "chime8", "chime9", "chime10"]
-                                current: settingsWin.host.chimeSound
-                                onPicked: value => {
-                                    settingsWin.host.chimeSound = value
-                                    settingsWin.host.saveSettings()
-                                }
                             }
                         }
                     }
@@ -1406,6 +1606,28 @@ PanelWindow {
                     width: 3
                     height: 4 + Math.abs(Math.sin(settingsWin.host.visualPhase + index * 0.7)) * 17
                     radius: 1
+                    color: settingsWin.fixedOn
+                }
+            }
+        }
+    }
+
+    component PvProgressBar: PreviewTile {
+        Column {
+            anchors.centerIn: parent
+            spacing: 3
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: 24
+                Rectangle { width: 12; height: 3; radius: 1; color: settingsWin.fixedOn }
+                Rectangle { width: 12; height: 3; radius: 1; color: settingsWin.fixedMuted }
+            }
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 52; height: 4; radius: 2
+                color: settingsWin.fixedSurfaceAlt
+                Rectangle {
+                    width: 30; height: 4; radius: 2
                     color: settingsWin.fixedOn
                 }
             }
