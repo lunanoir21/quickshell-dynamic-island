@@ -64,6 +64,14 @@ resolve_player() {
 # one place and avoids handing a page URL to the image loader.
 youtube_id_from_url() {
     local url="$1" id=""
+    # Bracket expressions like [A-Za-z] are collation-aware in glibc's regex
+    # engine outside the C locale, so under e.g. LANG=tr_TR.UTF-8 this match
+    # silently fails for IDs containing letters the Turkish collation order
+    # excludes from the perceived A-Z/a-z range (observed live: "WpFu3NciiKc"
+    # never matched under tr_TR.UTF-8 but matched fine under C). Force the C
+    # locale for the match itself so extraction is byte-based everywhere.
+    local old_lc_all="${LC_ALL:-}"
+    LC_ALL=C
 
     if [[ "$url" =~ [\?\&]v=([A-Za-z0-9_-]{11}) ]]; then
         id=${BASH_REMATCH[1]}
@@ -74,6 +82,8 @@ youtube_id_from_url() {
     fi
 
     [[ "$id" =~ ^[A-Za-z0-9_-]{11}$ ]] && printf '%s' "$id"
+
+    LC_ALL="$old_lc_all"
 }
 
 # Starts a single background download per video and immediately returns a

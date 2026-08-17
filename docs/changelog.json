@@ -2,6 +2,15 @@
   "$comment": "The changelog's single source of truth. docs/index.html shows the newest entry; docs/changelog.html renders all of them. Add a new object at the TOP of releases[] before every commit — see AGENTS.md. Screenshot paths are relative to docs/.",
   "releases": [
     {
+      "version": "2026.08.17",
+      "date": "2026-08-17",
+      "title": "YouTube covers, fixed for non-English locales",
+      "summary": "Under locales like tr_TR.UTF-8, glibc's regex engine treats [A-Za-z] as collation-aware rather than a plain byte range. That silently broke the video-id match in backend.sh for any id containing a letter Turkish collation sorts outside the perceived A-Z/a-z range, so the island fell back to a blank cover for a large share of videos instead of fetching one.",
+      "changes": [
+        { "type": "fixed", "text": "YouTube cover art failed to fetch for many videos under non-C locales (confirmed on tr_TR.UTF-8) — the video-id regex is now matched in the C locale regardless of the system locale." }
+      ]
+    },
+    {
       "version": "2026.08.16",
       "date": "2026-08-16",
       "title": "Settings that move, and three themes that are not grey",
