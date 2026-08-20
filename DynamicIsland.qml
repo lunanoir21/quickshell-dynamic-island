@@ -414,10 +414,16 @@ PanelWindow {
 
     // --------------------------------------------------------- preferences
     property bool showBorders: true
-    // Soft warm glow above the island, tinted with the active theme's accent
-    // (palette.on) rather than a fixed colour, so it never clashes with
-    // whichever theme is picked.
-    property bool islandHaloEnabled: true
+    // How the island's top edge relates to the screen edge:
+    //  - capsule:    floats with a gap, fully rounded (the original look)
+    //  - soft-fused: flush against the edge, gently rounded top corners
+    //  - notch:      flush, square-cornered joint carved with concave "ear"
+    //                pieces the same colour as the screen - the actual
+    //                technique real hardware notches use
+    //  - halo:       capsule geometry, unchanged, plus a soft glow tinted
+    //                with the active theme's accent (palette.on) behind it
+    property string islandMountStyle: "capsule"
+    readonly property var islandMountStyles: ["capsule", "soft-fused", "notch", "halo"]
     property bool hoverToOpen: true
     // "theme" follows the selected palette; "dark" is an explicit opt-in for
     // people who want the player to stay black while the rest of the island
@@ -483,7 +489,7 @@ PanelWindow {
         settingsFile.setText(JSON.stringify({
             themeName: window.themeName,
             showBorders: window.showBorders,
-            islandHaloEnabled: window.islandHaloEnabled,
+            islandMountStyle: window.islandMountStyle,
             hoverToOpen: window.hoverToOpen,
             mediaSurfaceMode: window.mediaSurfaceMode,
             clockStyle: window.clockStyle,
@@ -543,7 +549,11 @@ PanelWindow {
 
             window.themeName = readChoice(p, "themeName", window.themeOrder, window.themeName)
             window.showBorders = readBool(p, "showBorders", window.showBorders)
-            window.islandHaloEnabled = readBool(p, "islandHaloEnabled", window.islandHaloEnabled)
+            // Migrates the old boolean (pre-mount-style-picker) setting:
+            // islandHaloEnabled: true became the "halo" choice rather than
+            // silently reverting everyone who had it on back to "capsule".
+            let mountFallback = p.islandHaloEnabled === true ? "halo" : window.islandMountStyle
+            window.islandMountStyle = readChoice(p, "islandMountStyle", window.islandMountStyles, mountFallback)
             window.hoverToOpen = readBool(p, "hoverToOpen", window.hoverToOpen)
             window.mediaSurfaceMode = readChoice(p, "mediaSurfaceMode", ["theme", "dark"], window.mediaSurfaceMode)
 
@@ -2060,41 +2070,110 @@ PanelWindow {
                     : (callVisible ? (callBigView ? 270 : 124) : 324))))
         : 54
 
-    // Soft warm glow sitting behind the island's top edge, toggleable from
-    // Settings > Appearance. Tinted with the active theme's accent
-    // (palette.on) instead of a fixed colour so it never clashes across
-    // theme switches. Purely decorative - the island's own geometry is
-    // untouched, this just paints a blurred ellipse behind it.
+    // Four selectable top-edge mounts (Settings > Appearance > Mount style):
+    //  - capsule/halo share the original floating geometry
+    //  - soft-fused/notch sit flush against the screen edge instead
+    readonly property bool mountFlush: window.islandMountStyle === "soft-fused" || window.islandMountStyle === "notch"
+    readonly property real islandCornerRadius: window.expanded ? (window.alertVisible ? 24 : 30) : 20
+    readonly property real islandTopRadius: {
+        if (window.islandMountStyle === "soft-fused") return 7
+        if (window.islandMountStyle === "notch") return 0
+        return islandCornerRadius
+    }
+
+    // Two layered blurs rather than one flat blob: a wide, faint outer wash
+    // for ambient falloff plus a tighter, brighter core sized to the island
+    // itself, so the glow reads as coming from the pill instead of floating
+    // as a separate shape behind it. Tinted with the active theme's accent
+    // (palette.on) so it never clashes across theme switches.
     Item {
         id: islandHalo
-        visible: window.islandHaloEnabled && !window.fullscreenActive
+        visible: window.islandMountStyle === "halo" && !window.fullscreenActive
         anchors.top: parent.top
+        // "halo" only ever pairs with the capsule's 8px gap, never the flush
+        // mounts - centered on where the island actually floats.
+        anchors.topMargin: -12
         anchors.horizontalCenter: parent.horizontalCenter
-        width: Math.min(island.width + 160, 480)
-        height: 66
+        width: island.width + 90
+        height: island.height + 50
         z: -1
 
         opacity: visible ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on width { NumberAnimation { duration: 230; easing.type: Easing.OutCubic } }
+        Behavior on height { NumberAnimation { duration: 230; easing.type: Easing.OutCubic } }
 
         Rectangle {
-            id: haloSource
-            anchors.horizontalCenter: parent.horizontalCenter
+            id: haloWash
+            anchors.centerIn: parent
             width: parent.width
-            height: parent.height * 0.62
+            height: parent.height
             radius: height / 2
             color: window.themeOn
             visible: false
         }
-
         MultiEffect {
-            anchors.fill: haloSource
-            source: haloSource
+            anchors.fill: haloWash
+            source: haloWash
             blurEnabled: true
             blur: 1.0
-            blurMax: 56
+            blurMax: 64
             brightness: 0
-            opacity: 0.4
+            opacity: 0.16
+        }
+
+        Rectangle {
+            id: haloCore
+            anchors.centerIn: parent
+            width: island.width + 22
+            height: island.height + 8
+            radius: height / 2
+            color: window.themeOn
+            visible: false
+        }
+        MultiEffect {
+            anchors.fill: haloCore
+            source: haloCore
+            blurEnabled: true
+            blur: 0.5
+            blurMax: 26
+            brightness: 0.05
+            opacity: 0.32
+        }
+    }
+
+    // The notch's two "ears": the technique real hardware notches use is a
+    // solid-colour patch the exact shade of what's behind it, carved with a
+    // reversed radius. That only works against a known solid background
+    // (a status bar) - the desktop behind this window is an arbitrary
+    // wallpaper, so a solid patch would show up as a mismatched square
+    // instead of blending in. Using the theme's translucent scrim instead:
+    // it darkens/carves the corner consistently against any wallpaper
+    // rather than trying (and failing) to colour-match it exactly.
+    Item {
+        id: islandNotchEars
+        visible: window.islandMountStyle === "notch" && !window.fullscreenActive
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: island.width + 2 * islandCornerRadius
+        height: islandCornerRadius
+        z: 2
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            width: islandCornerRadius
+            height: islandCornerRadius
+            color: window.themeScrim
+            bottomRightRadius: islandCornerRadius
+        }
+        Rectangle {
+            anchors.right: parent.right
+            anchors.top: parent.top
+            width: islandCornerRadius
+            height: islandCornerRadius
+            color: window.themeScrim
+            bottomLeftRadius: islandCornerRadius
         }
     }
 
@@ -2102,13 +2181,16 @@ PanelWindow {
         id: island
 
         anchors.top: parent.top
-        anchors.topMargin: 8
+        anchors.topMargin: window.mountFlush ? 0 : 8
         anchors.horizontalCenter: parent.horizontalCenter
         visible: !window.fullscreenActive
 
         width: window.targetWidth
         height: window.targetHeight
-        radius: window.expanded ? (window.alertVisible ? 24 : 30) : 20
+        topLeftRadius: window.islandTopRadius
+        topRightRadius: window.islandTopRadius
+        bottomLeftRadius: window.islandCornerRadius
+        bottomRightRadius: window.islandCornerRadius
         clip: true
 
         // Only ever reachable while pinned, since that is the only state where

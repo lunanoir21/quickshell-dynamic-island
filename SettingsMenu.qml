@@ -535,17 +535,14 @@ PanelWindow {
                                 }
                             }
 
-                            SettingRow {
-                                Layout.fillWidth: true
-                                icon: "󰃚"
-                                label: settingsWin.i18n.setHalo
-                                detail: settingsWin.i18n.setHaloDesc
-                                checked: settingsWin.host.islandHaloEnabled
-                                onToggled: {
-                                    settingsWin.host.islandHaloEnabled = !settingsWin.host.islandHaloEnabled
-                                    settingsWin.host.saveSettings()
-                                }
-                            }
+                        }
+
+                        SettingGroup {
+                            visible: settingsWin.section === "appearance"
+                            label: settingsWin.i18n.grpMountStyle
+                            note: settingsWin.i18n.grpMountStyleNote
+
+                            MountStylePicker { Layout.fillWidth: true }
                         }
 
                         SettingGroup {
@@ -1980,6 +1977,146 @@ PanelWindow {
                         onClicked: {
                             settingsWin.host.clockStyle = styleOpt.modelData
                             settingsWin.revealClock()
+                            settingsWin.host.saveSettings()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Each option draws a tiny "screen edge" with the actual mount geometry
+    // in miniature (same corner-radius/flush logic the real island uses,
+    // just at picker scale) rather than an icon standing in for it.
+    component MountStylePicker: Rectangle {
+        implicitHeight: 116
+        radius: 16
+        color: settingsWin.fixedChip
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 8
+
+            Repeater {
+                model: settingsWin.host.islandMountStyles
+
+                Rectangle {
+                    id: mountOpt
+                    required property string modelData
+
+                    readonly property bool active: settingsWin.host.islandMountStyle === mountOpt.modelData
+                    readonly property string displayLabel: {
+                        switch (mountOpt.modelData) {
+                        case "soft-fused": return settingsWin.i18n.mountStyleSoftFused
+                        case "notch": return settingsWin.i18n.mountStyleNotch
+                        case "halo": return settingsWin.i18n.mountStyleHalo
+                        default: return settingsWin.i18n.mountStyleCapsule
+                        }
+                    }
+
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: 11
+                    scale: mountHit.containsMouse ? 1.03 : 1
+                    color: settingsWin.fixedChipHover
+                    border.width: 1
+                    border.color: mountOpt.active ? settingsWin.fixedText : "transparent"
+                    Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 6
+
+                        // Miniature screen edge + island, geometry mirrors
+                        // the real thing for this style.
+                        Item {
+                            id: screenSample
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+
+                            readonly property bool flush: mountOpt.modelData === "soft-fused" || mountOpt.modelData === "notch"
+                            readonly property real topRadius: mountOpt.modelData === "soft-fused" ? 3
+                                : (mountOpt.modelData === "notch" ? 0 : 9)
+
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.topMargin: -6
+                                radius: 6
+                                color: settingsWin.fixedSurfaceAlt
+                            }
+
+                            // halo glow, approximated with stacked translucent
+                            // ellipses rather than a real blur at this scale
+                            Rectangle {
+                                visible: mountOpt.modelData === "halo"
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                anchors.top: parent.top
+                                anchors.topMargin: -8
+                                width: 46; height: 26
+                                radius: 13
+                                color: settingsWin.host.themeOn
+                                opacity: 0.28
+                            }
+
+                            Item {
+                                anchors.top: parent.top
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                width: 40
+                                height: 9
+                                visible: mountOpt.modelData === "notch"
+
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    width: 6; height: 6
+                                    color: settingsWin.fixedSurfaceAlt
+                                    bottomRightRadius: 6
+                                }
+                                Rectangle {
+                                    anchors.right: parent.right
+                                    width: 6; height: 6
+                                    color: settingsWin.fixedSurfaceAlt
+                                    bottomLeftRadius: 6
+                                }
+                            }
+
+                            Rectangle {
+                                anchors.top: parent.top
+                                anchors.topMargin: screenSample.flush ? 0 : 4
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                width: 40
+                                height: 12
+                                topLeftRadius: screenSample.topRadius
+                                topRightRadius: screenSample.topRadius
+                                bottomLeftRadius: 9
+                                bottomRightRadius: 9
+                                color: settingsWin.fixedText
+                                opacity: 0.9
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: mountOpt.displayLabel
+                            color: mountOpt.active ? settingsWin.fixedText
+                                                   : settingsWin.fixedMuted
+                            font.family: settingsWin.host.uiFont
+                            font.weight: Font.DemiBold
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    MouseArea {
+                        id: mountHit
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: {
+                            settingsWin.host.islandMountStyle = mountOpt.modelData
                             settingsWin.host.saveSettings()
                         }
                     }
