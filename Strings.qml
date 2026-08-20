@@ -265,6 +265,8 @@ QtObject {
     // Appearance
     readonly property string setBorders: tr ? "Kenarlıklar" : es ? "Bordes" : fr ? "Bordures" : de ? "Ränder" : "Borders"
     readonly property string setBordersDesc: tr ? "Kartların çevresindeki ince hat" : es ? "La línea fina alrededor de las tarjetas" : fr ? "Le trait fin autour des cartes" : de ? "Der feine Rand um die Karten" : "The hairline around cards"
+    readonly property string setHalo: tr ? "Işık halesi" : es ? "Halo de luz" : fr ? "Halo lumineux" : de ? "Lichthalo" : "Light halo"
+    readonly property string setHaloDesc: tr ? "Adanın üstünde tema rengiyle yumuşak bir parıltı" : es ? "Un brillo suave sobre la isla con el color del tema" : fr ? "Une lueur douce au-dessus de l'île, dans la couleur du thème" : de ? "Ein sanfter Schimmer über der Insel in der Themenfarbe" : "A soft glow above the island, tinted with the theme colour"
     readonly property string setMediaSurfaceDesc: tr ? "Oynatıcı temayı izlesin veya koyu kalsın" : es ? "Seguir el tema o mantener el reproductor oscuro" : fr ? "Suivre le thème ou garder le lecteur sombre" : de ? "Dem Thema folgen oder Player dunkel lassen" : "Follow the theme or keep the player dark"
     readonly property string mediaSurfaceTheme: tr ? "Tema" : es ? "Tema" : fr ? "Thème" : de ? "Thema" : "Theme"
     readonly property string mediaSurfaceDark: tr ? "Koyu" : es ? "Oscuro" : fr ? "Sombre" : de ? "Dunkel" : "Dark"

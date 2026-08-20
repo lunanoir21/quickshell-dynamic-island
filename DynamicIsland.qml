@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -413,6 +414,10 @@ PanelWindow {
 
     // --------------------------------------------------------- preferences
     property bool showBorders: true
+    // Soft warm glow above the island, tinted with the active theme's accent
+    // (palette.on) rather than a fixed colour, so it never clashes with
+    // whichever theme is picked.
+    property bool islandHaloEnabled: true
     property bool hoverToOpen: true
     // "theme" follows the selected palette; "dark" is an explicit opt-in for
     // people who want the player to stay black while the rest of the island
@@ -478,6 +483,7 @@ PanelWindow {
         settingsFile.setText(JSON.stringify({
             themeName: window.themeName,
             showBorders: window.showBorders,
+            islandHaloEnabled: window.islandHaloEnabled,
             hoverToOpen: window.hoverToOpen,
             mediaSurfaceMode: window.mediaSurfaceMode,
             clockStyle: window.clockStyle,
@@ -537,6 +543,7 @@ PanelWindow {
 
             window.themeName = readChoice(p, "themeName", window.themeOrder, window.themeName)
             window.showBorders = readBool(p, "showBorders", window.showBorders)
+            window.islandHaloEnabled = readBool(p, "islandHaloEnabled", window.islandHaloEnabled)
             window.hoverToOpen = readBool(p, "hoverToOpen", window.hoverToOpen)
             window.mediaSurfaceMode = readChoice(p, "mediaSurfaceMode", ["theme", "dark"], window.mediaSurfaceMode)
 
@@ -2053,25 +2060,55 @@ PanelWindow {
                     : (callVisible ? (callBigView ? 270 : 124) : 324))))
         : 54
 
+    // Soft warm glow sitting behind the island's top edge, toggleable from
+    // Settings > Appearance. Tinted with the active theme's accent
+    // (palette.on) instead of a fixed colour so it never clashes across
+    // theme switches. Purely decorative - the island's own geometry is
+    // untouched, this just paints a blurred ellipse behind it.
+    Item {
+        id: islandHalo
+        visible: window.islandHaloEnabled && !window.fullscreenActive
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(island.width + 160, 480)
+        height: 66
+        z: -1
+
+        opacity: visible ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+        Rectangle {
+            id: haloSource
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            height: parent.height * 0.62
+            radius: height / 2
+            color: window.themeOn
+            visible: false
+        }
+
+        MultiEffect {
+            anchors.fill: haloSource
+            source: haloSource
+            blurEnabled: true
+            blur: 1.0
+            blurMax: 56
+            brightness: 0
+            opacity: 0.4
+        }
+    }
+
     Rectangle {
         id: island
 
         anchors.top: parent.top
-        anchors.topMargin: 0
+        anchors.topMargin: 8
         anchors.horizontalCenter: parent.horizontalCenter
         visible: !window.fullscreenActive
 
         width: window.targetWidth
         height: window.targetHeight
-        // Fused to the screen edge rather than floating below it: square top
-        // corners read as part of the display bezel, rounded bottom corners
-        // keep the capsule silhouette everywhere else. Qt 6.7+'s per-corner
-        // Rectangle radii, not a second clipping shape.
-        readonly property real cornerRadius: window.expanded ? (window.alertVisible ? 24 : 30) : 20
-        topLeftRadius: 0
-        topRightRadius: 0
-        bottomLeftRadius: cornerRadius
-        bottomRightRadius: cornerRadius
+        radius: window.expanded ? (window.alertVisible ? 24 : 30) : 20
         clip: true
 
         // Only ever reachable while pinned, since that is the only state where

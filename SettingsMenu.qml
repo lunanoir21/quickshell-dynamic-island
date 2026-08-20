@@ -534,6 +534,18 @@ PanelWindow {
                                     settingsWin.host.saveSettings()
                                 }
                             }
+
+                            SettingRow {
+                                Layout.fillWidth: true
+                                icon: "󰃚"
+                                label: settingsWin.i18n.setHalo
+                                detail: settingsWin.i18n.setHaloDesc
+                                checked: settingsWin.host.islandHaloEnabled
+                                onToggled: {
+                                    settingsWin.host.islandHaloEnabled = !settingsWin.host.islandHaloEnabled
+                                    settingsWin.host.saveSettings()
+                                }
+                            }
                         }
 
                         SettingGroup {
