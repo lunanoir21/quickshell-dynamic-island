@@ -2057,13 +2057,21 @@ PanelWindow {
         id: island
 
         anchors.top: parent.top
-        anchors.topMargin: 8
+        anchors.topMargin: 0
         anchors.horizontalCenter: parent.horizontalCenter
         visible: !window.fullscreenActive
 
         width: window.targetWidth
         height: window.targetHeight
-        radius: window.expanded ? (window.alertVisible ? 24 : 30) : 20
+        // Fused to the screen edge rather than floating below it: square top
+        // corners read as part of the display bezel, rounded bottom corners
+        // keep the capsule silhouette everywhere else. Qt 6.7+'s per-corner
+        // Rectangle radii, not a second clipping shape.
+        readonly property real cornerRadius: window.expanded ? (window.alertVisible ? 24 : 30) : 20
+        topLeftRadius: 0
+        topRightRadius: 0
+        bottomLeftRadius: cornerRadius
+        bottomRightRadius: cornerRadius
         clip: true
 
         // Only ever reachable while pinned, since that is the only state where
