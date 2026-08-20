@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -420,10 +419,8 @@ PanelWindow {
     //  - notch:      flush, square-cornered joint carved with concave "ear"
     //                pieces the same colour as the screen - the actual
     //                technique real hardware notches use
-    //  - halo:       capsule geometry, unchanged, plus a soft glow tinted
-    //                with the active theme's accent (palette.on) behind it
     property string islandMountStyle: "capsule"
-    readonly property var islandMountStyles: ["capsule", "soft-fused", "notch", "halo"]
+    readonly property var islandMountStyles: ["capsule", "soft-fused", "notch"]
     property bool hoverToOpen: true
     // "theme" follows the selected palette; "dark" is an explicit opt-in for
     // people who want the player to stay black while the rest of the island
@@ -549,11 +546,12 @@ PanelWindow {
 
             window.themeName = readChoice(p, "themeName", window.themeOrder, window.themeName)
             window.showBorders = readBool(p, "showBorders", window.showBorders)
-            // Migrates the old boolean (pre-mount-style-picker) setting:
-            // islandHaloEnabled: true became the "halo" choice rather than
-            // silently reverting everyone who had it on back to "capsule".
-            let mountFallback = p.islandHaloEnabled === true ? "halo" : window.islandMountStyle
-            window.islandMountStyle = readChoice(p, "islandMountStyle", window.islandMountStyles, mountFallback)
+            // A settings.json carrying the removed "halo" value (or the even
+            // older islandHaloEnabled boolean) falls back to capsule rather
+            // than staying on a style that no longer exists.
+            let savedMount = p.islandMountStyle === "halo" ? "capsule" : p.islandMountStyle
+            window.islandMountStyle = window.islandMountStyles.indexOf(savedMount) !== -1
+                ? savedMount : window.islandMountStyle
             window.hoverToOpen = readBool(p, "hoverToOpen", window.hoverToOpen)
             window.mediaSurfaceMode = readChoice(p, "mediaSurfaceMode", ["theme", "dark"], window.mediaSurfaceMode)
 
@@ -2070,8 +2068,8 @@ PanelWindow {
                     : (callVisible ? (callBigView ? 270 : 124) : 324))))
         : 54
 
-    // Four selectable top-edge mounts (Settings > Appearance > Mount style):
-    //  - capsule/halo share the original floating geometry
+    // Three selectable top-edge mounts (Settings > Appearance > Mount style):
+    //  - capsule floats with a gap, the original geometry
     //  - soft-fused/notch sit flush against the screen edge instead
     readonly property bool mountFlush: window.islandMountStyle === "soft-fused" || window.islandMountStyle === "notch"
     readonly property real islandCornerRadius: window.expanded ? (window.alertVisible ? 24 : 30) : 20
@@ -2079,67 +2077,6 @@ PanelWindow {
         if (window.islandMountStyle === "soft-fused") return 7
         if (window.islandMountStyle === "notch") return 0
         return islandCornerRadius
-    }
-
-    // Two layered blurs rather than one flat blob: a wide, faint outer wash
-    // for ambient falloff plus a tighter, brighter core sized to the island
-    // itself, so the glow reads as coming from the pill instead of floating
-    // as a separate shape behind it. Tinted with the active theme's accent
-    // (palette.on) so it never clashes across theme switches.
-    Item {
-        id: islandHalo
-        visible: window.islandMountStyle === "halo" && !window.fullscreenActive
-        anchors.top: parent.top
-        // "halo" only ever pairs with the capsule's 8px gap, never the flush
-        // mounts - centered on where the island actually floats.
-        anchors.topMargin: -12
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: island.width + 90
-        height: island.height + 50
-        z: -1
-
-        opacity: visible ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-        Behavior on width { NumberAnimation { duration: 230; easing.type: Easing.OutCubic } }
-        Behavior on height { NumberAnimation { duration: 230; easing.type: Easing.OutCubic } }
-
-        Rectangle {
-            id: haloWash
-            anchors.centerIn: parent
-            width: parent.width
-            height: parent.height
-            radius: height / 2
-            color: window.themeOn
-            visible: false
-        }
-        MultiEffect {
-            anchors.fill: haloWash
-            source: haloWash
-            blurEnabled: true
-            blur: 1.0
-            blurMax: 64
-            brightness: 0
-            opacity: 0.16
-        }
-
-        Rectangle {
-            id: haloCore
-            anchors.centerIn: parent
-            width: island.width + 22
-            height: island.height + 8
-            radius: height / 2
-            color: window.themeOn
-            visible: false
-        }
-        MultiEffect {
-            anchors.fill: haloCore
-            source: haloCore
-            blurEnabled: true
-            blur: 0.5
-            blurMax: 26
-            brightness: 0.05
-            opacity: 0.32
-        }
     }
 
     // The notch's two "ears": the technique real hardware notches use is a

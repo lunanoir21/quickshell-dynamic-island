@@ -2010,7 +2010,6 @@ PanelWindow {
                         switch (mountOpt.modelData) {
                         case "soft-fused": return settingsWin.i18n.mountStyleSoftFused
                         case "notch": return settingsWin.i18n.mountStyleNotch
-                        case "halo": return settingsWin.i18n.mountStyleHalo
                         default: return settingsWin.i18n.mountStyleCapsule
                         }
                     }
@@ -2047,19 +2046,6 @@ PanelWindow {
                                 anchors.topMargin: -6
                                 radius: 6
                                 color: settingsWin.fixedSurfaceAlt
-                            }
-
-                            // halo glow, approximated with stacked translucent
-                            // ellipses rather than a real blur at this scale
-                            Rectangle {
-                                visible: mountOpt.modelData === "halo"
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                anchors.top: parent.top
-                                anchors.topMargin: -8
-                                width: 46; height: 26
-                                radius: 13
-                                color: settingsWin.host.themeOn
-                                opacity: 0.28
                             }
 
                             Item {

@@ -270,7 +270,6 @@ QtObject {
     readonly property string mountStyleCapsule: tr ? "Kapsül" : es ? "Cápsula" : fr ? "Capsule" : de ? "Kapsel" : "Capsule"
     readonly property string mountStyleSoftFused: tr ? "Yumuşak kaynak" : es ? "Fusión suave" : fr ? "Fusion douce" : de ? "Sanft verschmolzen" : "Soft-fused"
     readonly property string mountStyleNotch: tr ? "Çentik" : es ? "Muesca" : fr ? "Encoche" : de ? "Notch" : "Notch"
-    readonly property string mountStyleHalo: tr ? "Hâle" : es ? "Halo" : fr ? "Halo" : de ? "Halo" : "Halo"
     readonly property string setMediaSurfaceDesc: tr ? "Oynatıcı temayı izlesin veya koyu kalsın" : es ? "Seguir el tema o mantener el reproductor oscuro" : fr ? "Suivre le thème ou garder le lecteur sombre" : de ? "Dem Thema folgen oder Player dunkel lassen" : "Follow the theme or keep the player dark"
     readonly property string mediaSurfaceTheme: tr ? "Tema" : es ? "Tema" : fr ? "Thème" : de ? "Thema" : "Theme"
     readonly property string mediaSurfaceDark: tr ? "Koyu" : es ? "Oscuro" : fr ? "Sombre" : de ? "Dunkel" : "Dark"
