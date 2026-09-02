@@ -119,6 +119,16 @@ dört nötr temaya katılıyor.
   olmadığı ise PipeWire'dan çıkarılır: aynı anda bir çalma ve bir kayıt akışı
   tutan uygulama, tanım itibarıyla aramadadır — bu da süre sayacını doğru
   tutar ve başka bir cihazdan cevaplanan aramayı da kapsar.
+- **Süren görüşmeler** — bağlanmış bir görüşme kapalı kapsülde bir şerit
+  bırakır: mikrofon kapatılınca düzleşen bir dalga, kiminle konuşulduğu ve
+  akan bir sayaç. Tıklayınca uygulamanın kendi logosu, büyük sayaç ve sessize
+  alma düğmesiyle tam görüşme ekranı açılır; sade bar da seçenek olarak durur.
+  Kiminle konuşulduğu, çalan bildirim varsa oradan, yoksa arayan uygulamanın
+  pencere başlığından çıkarılır — kendi başlattığın bir görüşme adı başka
+  hiçbir yerde söylemez.
+- **Bildirim kartı tasarımları** — beş düzen (Klasik, Dar, Ortalı, Bloklu,
+  Sade), her biri adayı kendine göre boyutlandırır, ve beş geliş animasyonu.
+  İkisi de etiket yerine gerçeğini gösteren önizlemelerden seçilir.
 - **Satır içi yanıt** — KDE tarzı bir `inline-reply` aksiyonu taşıyan bildirimler
   bir metin kutusu ve gönder düğmesi alır; gerçek `NotificationReplied` D-Bus
   sinyaline bağlıdır.

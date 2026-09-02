@@ -119,7 +119,51 @@ PanelWindow {
     readonly property bool callVisible: callCardOpen && callOngoing
     readonly property string callDisplayApp: callApp !== "" ? callApp
         : (islandState.call.app !== "" ? islandState.call.app.charAt(0).toUpperCase() + islandState.call.app.slice(1) : i18n.callFallbackApp)
-    readonly property string callDisplayTitle: callTitle !== "" ? callTitle : i18n.voiceCall
+    // Best available answer to "who am I talking to". A ringing notification
+    // carries a real name, so that always wins; failing that the backend digs
+    // a room/contact out of the app's window title, which is all there is for
+    // a call the user placed themselves. Neither exists for e.g. Signal, and
+    // then the call is simply named after itself.
+    readonly property string callPeer: String(islandState.call.peer || "")
+    readonly property string callDisplayTitle: callTitle !== "" ? callTitle
+        : (callPeer !== "" ? callPeer : i18n.voiceCall)
+
+    // Drives the compact strip's arrival: 0 when there is no call, 1 once it
+    // has opened out. Bound rather than restarted by hand so it plays in both
+    // directions — the strip closes the same way it opened instead of being
+    // cut off the instant the call drops.
+    property real callStripEntry: callOngoing ? 1 : 0
+    Behavior on callStripEntry {
+        NumberAnimation {
+            duration: window.callOngoing ? 460 : 280
+            easing.type: window.callOngoing ? Easing.OutBack : Easing.InCubic
+            easing.overshoot: 1.15
+        }
+    }
+
+    // Ticked here rather than read straight off the snapshot: backend.sh only
+    // recomputes `call.duration` when it is polled, so a timer bound to it
+    // stalls and then jumps several seconds at once. `call.start` is a fixed
+    // epoch, and currentTime already advances once a second for the clock, so
+    // deriving the elapsed time from the two gives a second hand that actually
+    // moves. Falls back to the snapshot's own figure if start is missing.
+    readonly property int callElapsed: {
+        let start = Number(islandState.call.start || 0)
+        if (start <= 0) return Number(islandState.call.duration || 0)
+        let now = Math.floor(currentTime.getTime() / 1000)
+        return Math.max(0, now - start)
+    }
+    // m:ss under an hour, h:mm:ss past it. A call that has been running for
+    // ninety minutes should not read as "90:12".
+    function formatCallTime(seconds) {
+        seconds = Math.max(0, Math.floor(Number(seconds) || 0))
+        let h = Math.floor(seconds / 3600)
+        let m = Math.floor((seconds % 3600) / 60)
+        let s = seconds % 60
+        let ss = (s < 10 ? "0" : "") + s
+        if (h > 0) return h + ":" + (m < 10 ? "0" : "") + m + ":" + ss
+        return m + ":" + ss
+    }
 
     function classifyCallActions(actions) {
         let accept = "", decline = ""
@@ -168,14 +212,13 @@ PanelWindow {
 
     function invokeCallAction(actionId) {
         if (window.callUid === "" || actionId === "") return
-        // Targets Main.qml, not Shell.qml: whichever quickshell instance owns
-        // org.freedesktop.Notifications is the one holding the live,
-        // invokable Notification object, and on this setup that is the
-        // standalone Main.qml process, not the copy of Main{} embedded in
-        // Shell.qml (its NotificationServer loses the D-Bus name and never
-        // receives anything).
-        Quickshell.execDetached(["quickshell", "-p", Quickshell.env("HOME") + "/.config/hypr/scripts/quickshell/Main.qml",
-            "ipc", "call", "notificationBridge", "invokeAction", window.callUid, actionId])
+        // Goes to whichever instance owns org.freedesktop.Notifications, since
+        // that is the one holding the live, invokable Notification object.
+        // bridgeCall tries both entry points rather than naming one: an
+        // earlier hardcoded path assumed a standalone Main.qml process that
+        // this setup does not run, so answering a call reached nothing.
+        window.bridgeCall(["ipc", "call", "notificationBridge", "invokeAction",
+            window.callUid, actionId])
     }
 
     function answerCall() {
@@ -335,6 +378,18 @@ PanelWindow {
             on: "#181a1f", onText: "#ffffff",
             track: "#d3d6dc", scrim: "#70111418", grid: "#dfe2e7"
         },
+        // The light theme's warm sibling: same paper-bright surface logic as
+        // "white", but the neutrals carry a beige cast and the accent is a
+        // deep espresso rather than near-black, so the theme reads as skin
+        // tone from the surface alone.
+        "nude": {
+            islandFill: "#f7f8f1e7", surface: "#f8f1e7", surfaceAlt: "#ebdfce",
+            text: "#2f2620", subtext: "#544537", muted: "#7b6a58",
+            line: "#265c4433", lineStrong: "#425c4433",
+            chip: "#125c4433", chipHover: "#265c4433",
+            on: "#5c4433", onText: "#f8f1e7",
+            track: "#d9c9b3", scrim: "#702f2620", grid: "#e3d6c3"
+        },
         // A deep bronze-black rather than another near-black neutral, so the
         // theme reads as "gold" from the surface colour alone before the
         // accent ever shows up. The mustard-gold `on` is muted and metallic
@@ -369,7 +424,7 @@ PanelWindow {
             track: "#331a1c", scrim: "#b3170a0c", grid: "#1f1315"
         }
     })
-    readonly property var themeOrder: ["black", "umbra", "gray", "white", "gold", "amber", "red"]
+    readonly property var themeOrder: ["black", "umbra", "gray", "white", "nude", "gold", "amber", "red"]
     // Falls back rather than resolving to undefined: a settings.json edited by
     // hand to a name that no longer exists must not leave every colour unset.
     readonly property var palette: themePalettes[themeName] || themePalettes["umbra"]
@@ -436,10 +491,50 @@ PanelWindow {
     property bool callAutoPopup: true
     property int callRingSeconds: 35
     property bool callPulseRing: true
+    // How much the island shows for a call that is already connected. "mini"
+    // is the one-line bar; "detailed" fills the island with a proper call
+    // screen — who it is with, how long, and the mic. The compact strip on the
+    // closed pill is always there either way, since that is the only trace of
+    // a call when the card is shut.
+    property string callView: "detailed"
+    readonly property var callViews: ["mini", "detailed"]
 
     property int notificationSeconds: 5
     property bool notificationInlineReply: true
     property bool notificationAppIcon: true
+    // Off still records every notification in the shell's history — this only
+    // decides whether the island itself raises a card for it.
+    property bool notificationPopup: true
+    // How the card arrives: "drop" falls in from above the pill, "slide" comes
+    // in from the right, "pop" scales up from the centre, "unfold" opens along
+    // the vertical axis, and "fade" is the plain crossfade this had before the
+    // rest existed.
+    property string notificationEntrance: "drop"
+    readonly property var notificationEntrances: ["drop", "slide", "pop", "unfold", "fade"]
+
+    // Five ways to lay the same notification out. They are genuinely different
+    // shapes, not one card with a density switch: the island resizes itself to
+    // each, so the choice changes how much of the screen a notification takes
+    // as much as it changes how it reads.
+    property string notificationLayout: "classic"
+    readonly property var notificationLayouts: ["classic", "compact", "stacked", "rail", "minimal"]
+
+    function notificationCardWidth(layout) {
+        switch (layout) {
+        case "compact": return 430
+        case "stacked": return 400
+        case "minimal": return 460
+        default: return 500
+        }
+    }
+    function notificationCardHeight(layout) {
+        switch (layout) {
+        case "compact": return 92
+        case "stacked": return 172
+        case "minimal": return 112
+        default: return 124
+        }
+    }
 
     property bool mediaLyricsEnabled: true
     property bool mediaSpectrumEnabled: true
@@ -497,9 +592,13 @@ PanelWindow {
             callAutoPopup: window.callAutoPopup,
             callRingSeconds: window.callRingSeconds,
             callPulseRing: window.callPulseRing,
+            callView: window.callView,
             notificationSeconds: window.notificationSeconds,
             notificationInlineReply: window.notificationInlineReply,
             notificationAppIcon: window.notificationAppIcon,
+            notificationPopup: window.notificationPopup,
+            notificationEntrance: window.notificationEntrance,
+            notificationLayout: window.notificationLayout,
             mediaLyricsEnabled: window.mediaLyricsEnabled,
             mediaSpectrumEnabled: window.mediaSpectrumEnabled,
             mediaAlbumArtEnabled: window.mediaAlbumArtEnabled,
@@ -564,10 +663,16 @@ PanelWindow {
             window.callAutoPopup = readBool(p, "callAutoPopup", window.callAutoPopup)
             window.callRingSeconds = readChoice(p, "callRingSeconds", [15, 35, 60], window.callRingSeconds)
             window.callPulseRing = readBool(p, "callPulseRing", window.callPulseRing)
+            window.callView = readChoice(p, "callView", window.callViews, window.callView)
 
             window.notificationSeconds = readChoice(p, "notificationSeconds", [3, 5, 8], window.notificationSeconds)
             window.notificationInlineReply = readBool(p, "notificationInlineReply", window.notificationInlineReply)
             window.notificationAppIcon = readBool(p, "notificationAppIcon", window.notificationAppIcon)
+            window.notificationPopup = readBool(p, "notificationPopup", window.notificationPopup)
+            window.notificationEntrance = readChoice(p, "notificationEntrance",
+                window.notificationEntrances, window.notificationEntrance)
+            window.notificationLayout = readChoice(p, "notificationLayout",
+                window.notificationLayouts, window.notificationLayout)
 
             window.mediaLyricsEnabled = readBool(p, "mediaLyricsEnabled", window.mediaLyricsEnabled)
             window.mediaSpectrumEnabled = readBool(p, "mediaSpectrumEnabled", window.mediaSpectrumEnabled)
@@ -626,6 +731,90 @@ PanelWindow {
     property var visualLevels: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
     readonly property bool cavaLive: cavaProcess.running
 
+    // 0 while the notification card is still arriving, 1 once it has settled.
+    // Every entrance style reads this one number and turns it into its own
+    // offset or scale, so switching styles never touches the card's layout.
+    property real notificationEntry: 1
+    // The card's contents run a beat behind the card itself. That lag is what
+    // separates a card that moves from a card that arrives: the plate lands,
+    // then the logo and the text catch up to it. One number, so a style only
+    // has to say how far behind it wants them.
+    property real notificationContentEntry: 1
+
+    // Taken by name rather than read off the current setting, so the settings
+    // window can run the same curve for every style side by side — a preview
+    // that invented its own timing would be showing something the island does
+    // not actually do.
+    function entranceDuration(name) {
+        switch (name) {
+        case "fade": return 220
+        case "slide": return 340
+        case "unfold": return 400
+        case "pop": return 430
+        default: return 480
+        }
+    }
+    // Drop and pop overshoot on purpose — that small bounce past the resting
+    // position is what makes the card read as a physical thing landing, which
+    // a plain ease-out never does.
+    function entranceEasing(name) {
+        switch (name) {
+        case "fade": return Easing.OutCubic
+        case "slide": return Easing.OutQuint
+        case "unfold": return Easing.OutQuint
+        default: return Easing.OutBack
+        }
+    }
+    function entranceOvershoot(name) {
+        switch (name) {
+        case "pop": return 2.8
+        case "drop": return 1.9
+        default: return 1.5
+        }
+    }
+    // How long the contents wait before following the card in. Unfold is the
+    // extreme: nothing is legible until the panel has actually opened, so the
+    // text has no business being there for the first half of it.
+    function entranceContentDelay(name) {
+        switch (name) {
+        case "fade": return 0
+        case "slide": return 70
+        case "pop": return 60
+        case "unfold": return 150
+        default: return 110
+        }
+    }
+
+    ParallelAnimation {
+        id: notificationEntryAnim
+
+        NumberAnimation {
+            target: window
+            property: "notificationEntry"
+            from: 0
+            to: 1
+            duration: window.entranceDuration(window.notificationEntrance)
+            easing.type: window.entranceEasing(window.notificationEntrance)
+            easing.overshoot: window.entranceOvershoot(window.notificationEntrance)
+        }
+
+        SequentialAnimation {
+            // Without this the contents stay fully settled for the whole
+            // delay and only then snap back to 0 to animate — the lag has to
+            // start by hiding them, not by leaving them on screen.
+            PropertyAction { target: window; property: "notificationContentEntry"; value: 0 }
+            PauseAnimation { duration: window.entranceContentDelay(window.notificationEntrance) }
+            NumberAnimation {
+                target: window
+                property: "notificationContentEntry"
+                from: 0
+                to: 1
+                duration: 260
+                easing.type: Easing.OutCubic
+            }
+        }
+    }
+
     SequentialAnimation on playGlow {
         running: window.mediaStatus === "Playing" && !window.fullscreenActive
         loops: Animation.Infinite
@@ -653,7 +842,12 @@ PanelWindow {
         // test IPC (which doesn't touch islandState at all). Driving it off
         // "the mic card is on screen" instead means the animation always
         // matches what the card is claiming, with no separate poll to wait on.
-        running: window.mediaStatus === "Playing" || window.islandState.micActive || window.callRinging || window.callAnswering
+        // callOngoing, not just the ringing/answering flags: a connected call
+        // drives the live dot on the compact strip, and that was previously
+        // riding on micActive alone — so muting the mic mid-call froze the one
+        // thing on screen claiming the call was still live.
+        running: window.mediaStatus === "Playing" || window.islandState.micActive
+            || window.callRinging || window.callAnswering || window.callOngoing
             || (window.deviceEventVisible && (window.deviceEventType === "battery" || window.deviceEventType === "microphone"))
             // The completion card breathes for as long as it is up, and the
             // final ten seconds of a countdown pulse on the same shared sine.
@@ -1605,6 +1799,7 @@ PanelWindow {
     function showNotification(app, title, body, icon, uid, hasReply, replyPlaceholder) {
         if (window.callVisible) return
         if (window.dndActive) return
+        if (!window.notificationPopup) return
         notificationApp = app
         notificationIcon = resolveAppIcon(app, icon)
         notificationTitle = title
@@ -1626,6 +1821,11 @@ PanelWindow {
         notificationVisible = true
         notificationTimer.restart()
         notificationProgress.restart()
+        // Restarted rather than bound to notificationVisible: a second
+        // notification arriving while the first card is still up leaves that
+        // flag true, and without an explicit restart the new card would swap
+        // its text in with no motion at all.
+        notificationEntryAnim.restart()
     }
 
     // wl-copy takes the text straight as an argument (no shell, no pipe
@@ -1640,11 +1840,32 @@ PanelWindow {
         notificationCopiedTimer.restart()
     }
 
+    // Ses karistirici ayri bir popup (Main.qml -> mixer/VolumeMixer.qml).
+    // Ada'nin icine gomulmuyor: kullanici bunu bagimsiz, kisayolla acilan bir
+    // pencere olarak istedi; buradaki dugme sadece ayni kisayolu tetikliyor.
+    function openMixer() {
+        Quickshell.execDetached(["bash", Quickshell.env("HOME") + "/.config/hypr/scripts/qs_manager.sh",
+            "toggle", "mixer"])
+    }
+
+    // Which file is the running shell's entry point depends on how the island
+    // was started: standalone it is this folder's own Main.qml, embedded in a
+    // larger shell it is that shell's root file, and `-p` on the directory
+    // does not find either (it looks for a lowercase shell.qml). A hardcoded
+    // path was silently wrong for every embedded install — the reply went to
+    // an instance that was not running and nothing came back. Both candidates
+    // are tried; the one that is not running exits with an error nobody sees.
+    function bridgeCall(args) {
+        let base = ["quickshell", "-p"]
+        Quickshell.execDetached(base.concat([Quickshell.shellDir + "/Shell.qml"]).concat(args))
+        Quickshell.execDetached(base.concat([Quickshell.shellDir + "/Main.qml"]).concat(args))
+    }
+
     function sendNotificationReply() {
         let text = window.notificationReplyText.trim()
         if (text === "" || window.notificationUid === "") return
-        Quickshell.execDetached(["quickshell", "-p", Quickshell.env("HOME") + "/.config/hypr/scripts/quickshell/Main.qml",
-            "ipc", "call", "notificationBridge", "sendInlineReply", window.notificationUid, text])
+        window.bridgeCall(["ipc", "call", "notificationBridge", "sendInlineReply",
+            window.notificationUid, text])
         window.notificationVisible = false
         window.notificationReplyText = ""
         replyField.text = ""
@@ -1731,6 +1952,12 @@ PanelWindow {
         readonly property int islandWidth: Math.round(window.targetWidth)
         readonly property int islandHeight: Math.round(window.targetHeight)
         readonly property int islandTopMargin: 8
+        // Why a notification did or did not raise a card. Every one of these
+        // silently swallows it, and from the outside the three look identical
+        // — an island that simply did nothing.
+        readonly property bool dndOn: window.dndActive
+        readonly property bool notificationCardOn: window.notificationPopup
+        readonly property bool callUp: window.callVisible
         function toggle(): void { window.lockedOpen = !window.lockedOpen; if (!window.lockedOpen) window.closeIsland() }
         function open(): void { window.lockedOpen = true }
         function close(): void { window.closeIsland() }
@@ -1745,6 +1972,45 @@ PanelWindow {
         function compactControls(enabled: bool): void {
             window.compactMediaControls = enabled
             window.saveSettings()
+        }
+        // Both persist, so the shell's own settings window (SUPER+H) can drive
+        // the island's notification behaviour without keeping a second copy of
+        // these values in its own settings.json — this file stays the only
+        // place they live.
+        function notificationCard(enabled: bool): void {
+            window.notificationPopup = enabled
+            window.saveSettings()
+        }
+        // "drop", "slide", "pop", "unfold", "fade", or "cycle" to step through
+        // them — the cycle form is what makes the styles comparable from a
+        // keybind, since the difference is motion and has to be watched.
+        function notificationStyle(name: string): void {
+            if (name === "cycle") {
+                let at = window.notificationEntrances.indexOf(window.notificationEntrance)
+                window.notificationEntrance =
+                    window.notificationEntrances[(at + 1) % window.notificationEntrances.length]
+            } else {
+                if (window.notificationEntrances.indexOf(name) === -1) return
+                window.notificationEntrance = name
+            }
+            window.saveSettings()
+        }
+        // "classic", "compact", "stacked", "rail", "minimal", or "cycle".
+        function notificationDesign(name: string): void {
+            if (name === "cycle") {
+                let at = window.notificationLayouts.indexOf(window.notificationLayout)
+                window.notificationLayout =
+                    window.notificationLayouts[(at + 1) % window.notificationLayouts.length]
+            } else {
+                if (window.notificationLayouts.indexOf(name) === -1) return
+                window.notificationLayout = name
+            }
+            window.saveSettings()
+        }
+        // Raises a sample card so the chosen entrance can be watched on the
+        // real island instead of the settings preview.
+        function notifyTest(): void {
+            window.showNotification(i18n.notification, i18n.newNotification, i18n.emptyNotification, "")
         }
         function lyrics(): void { window.showLyrics = !window.showLyrics }
         function clock(): void { window.showClock = !window.showClock }
@@ -1833,6 +2099,19 @@ PanelWindow {
         // was raised by mistake, or by a test, without waiting it out. Also
         // covers a call the PipeWire heuristic still reports as live.
         function dismissCall(): void { window.dismissCallCard() }
+        // Opens/closes the call screen for a call already in progress — the
+        // same thing the strip on the closed pill does, reachable from a
+        // keybind. With callAutoPopup off this is the only way in.
+        function callScreen(): void {
+            if (window.callAutoPopup) window.callDismissed = !window.callDismissed
+            else window.callManualOpen = !window.callManualOpen
+        }
+        // "mini" or "detailed" — how much the island shows during a call.
+        function callViewStyle(name: string): void {
+            if (window.callViews.indexOf(name) === -1) return
+            window.callView = name
+            window.saveSettings()
+        }
         function deviceEvent(type: string, enabled: bool, value: int): void { window.showDeviceEvent(type, enabled, value) }
         function notification(app: string, title: string, body: string): void {
             window.showNotification(app, title, body, "")
@@ -2050,12 +2329,19 @@ PanelWindow {
     // heuristic gets around to confirming it — waiting on that would leave
     // the big screen sitting there through the whole "Bağlanıyor…" gap.
     readonly property bool callBigView: callRinging && !callAnswering
+    // The detailed screen only applies to a call that is actually connected —
+    // while it is still ringing the big answer/decline view owns the island,
+    // and that one is not a preference.
+    readonly property bool callDetailView: callView === "detailed"
+        && !callBigView && !!islandState.call.active
     // The completion card is checked before every other alert: it is the only
     // one the user explicitly asked for by starting a timer, so nothing else
     // arriving in the same tick gets to size the island out from under it.
     readonly property real targetWidth: expanded
         ? Math.min(timeAlertVisible ? 470
-            : (notificationVisible ? 500 : (deviceEventVisible ? 420 : (callVisible ? (callBigView ? 360 : 500) : 780))), window.width - 40)
+            : (notificationVisible ? window.notificationCardWidth(window.notificationLayout)
+                : (deviceEventVisible ? 420
+                    : (callVisible ? (callBigView ? 360 : (callDetailView ? 540 : 500)) : 780))), window.width - 40)
         : compactWidth
     // Mirrors replyRow's own visibility rather than notificationHasReply alone:
     // with inline reply switched off the field is gone, and the card must not
@@ -2063,9 +2349,11 @@ PanelWindow {
     readonly property bool notificationReplyShown: notificationHasReply && notificationInlineReply
     readonly property real targetHeight: expanded
         ? (timeAlertVisible ? 128
-            : (notificationVisible ? (notificationReplyShown ? 168 : 124)
+            : (notificationVisible
+                ? window.notificationCardHeight(window.notificationLayout)
+                    + (notificationReplyShown ? 44 : 0)
                 : (deviceEventVisible ? 98
-                    : (callVisible ? (callBigView ? 270 : 124) : 324))))
+                    : (callVisible ? (callBigView ? 270 : (callDetailView ? 214 : 124)) : 324))))
         : 54
 
     // Three selectable top-edge mounts (Settings > Appearance > Mount style):
@@ -2310,6 +2598,186 @@ PanelWindow {
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: window.mediaStatus === "Playing" ? 4 : 0
                 spacing: 14
+
+                // ------------------------------------------- live call
+                // A call in progress outranks everything else the compact pill
+                // shows: it is the one thing on here the user is *inside* of,
+                // and the two facts worth surfacing without opening anything
+                // are who it is with and how long it has been running. The
+                // card behind it may well be closed — with callAutoPopup off
+                // it never opened at all — so this is the only always-on trace
+                // of a call, and clicking it opens the full card.
+                // Wrapped in a plain Item so the click target can fill it:
+                // anchoring a MouseArea inside a Layout is undefined behavior,
+                // and the layout wins the argument.
+                Item {
+                    id: callStripHost
+                    visible: window.callStripEntry > 0.001
+                    // Widening from nothing is what makes the pill itself grow
+                    // to meet the call rather than the strip popping into a
+                    // pill that has already resized behind it.
+                    Layout.preferredWidth: Math.round(callStrip.implicitWidth * window.callStripEntry)
+                    Layout.preferredHeight: callStrip.implicitHeight
+                    Layout.alignment: Qt.AlignVCenter
+                    clip: true
+                    opacity: Math.max(0, Math.min(1, window.callStripEntry * 1.4))
+
+                    RowLayout {
+                        id: callStrip
+                        // Pinned to the left rather than filling: while the
+                        // host is still narrower than its contents, filling
+                        // would squeeze the text and it would appear to grow
+                        // into place letter by letter.
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: callStrip.implicitWidth
+                        spacing: 9
+
+                        // Live indicator. A connected call gets a small moving
+                        // waveform — the one shape that reads as "voice" at
+                        // this size, and far more alive than a blinking dot.
+                        // A call still ringing has no audio yet, so it gets a
+                        // steady dot instead: the two states look different
+                        // before you read a single word.
+                        Item {
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: window.islandState.call.active ? 20 : 8
+                            Layout.preferredHeight: 16
+                            Behavior on Layout.preferredWidth {
+                                NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+                            }
+
+                            Row {
+                                anchors.centerIn: parent
+                                visible: window.islandState.call.active
+                                spacing: 2
+
+                                Repeater {
+                                    model: 4
+
+                                    Rectangle {
+                                        required property int index
+                                        // Each bar is the same sine sampled a
+                                        // third of a cycle apart, so the four
+                                        // travel as one wave instead of
+                                        // flickering independently. Muting the
+                                        // mic flattens them — the strip then
+                                        // says the call is live but you are not
+                                        // being heard, which is the one thing
+                                        // worth knowing at a glance.
+                                        readonly property real amount: window.islandState.micMuted
+                                            ? 0.12
+                                            : 0.25 + Math.abs(Math.sin(window.visualPhase * 1.1 + index * 0.9)) * 0.75
+                                        width: 3
+                                        height: 4 + amount * 11
+                                        radius: 1.5
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        color: window.themeStatusLive
+                                        opacity: window.islandState.micMuted ? 0.5 : 0.9
+                                        Behavior on height {
+                                            NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                visible: !window.islandState.call.active
+                                width: 8
+                                height: 8
+                                radius: 4
+                                color: window.themeStatusLive
+                            }
+                        }
+
+                        // The caller's name when a ring told us who it is,
+                        // otherwise the room from the window title, otherwise
+                        // the app — PipeWire knows a call is happening but
+                        // never who is on the other end.
+                        Text {
+                            id: callStripName
+                            Layout.maximumWidth: 150
+                            Layout.alignment: Qt.AlignVCenter
+                            text: window.callTitle !== "" ? window.callTitle
+                                  : (window.callPeer !== "" ? window.callPeer : window.callDisplayApp)
+                            elide: Text.ElideRight
+                            color: window.themeText
+                            font.family: window.uiFont
+                            font.weight: Font.DemiBold
+                            font.pixelSize: 14
+                            // A name that changes mid-call (the window title
+                            // caught up, or the room switched) swaps rather
+                            // than cutting.
+                            onTextChanged: nameSwap.restart()
+                            SequentialAnimation {
+                                id: nameSwap
+                                NumberAnimation { target: callStripName; property: "opacity"; to: 0.25; duration: 90 }
+                                NumberAnimation { target: callStripName; property: "opacity"; to: 1; duration: 200; easing.type: Easing.OutCubic }
+                            }
+                        }
+
+                        Item {
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: callStripTime.implicitWidth
+                            Layout.preferredHeight: callStripTime.implicitHeight
+
+                            Text {
+                                id: callStripTime
+                                anchors.centerIn: parent
+                                text: window.islandState.call.active
+                                      ? window.formatCallTime(window.callElapsed) : i18n.incomingCall
+                                color: window.themeMuted
+                                font.family: window.uiFont
+                                font.pixelSize: 13
+                                // Tabular figures: without them the whole
+                                // strip twitches sideways every second as the
+                                // digits change width.
+                                font.features: ({ "tnum": 1 })
+
+                                // Ticks on the minute, not on every second —
+                                // a strip that jumps once a second is noise,
+                                // one that marks the minute reads as a clock.
+                                property int lastMinute: -1
+                                onTextChanged: {
+                                    let m = Math.floor(window.callElapsed / 60)
+                                    if (m !== callStripTime.lastMinute) {
+                                        callStripTime.lastMinute = m
+                                        if (window.islandState.call.active) minuteTick.restart()
+                                    }
+                                }
+                                SequentialAnimation {
+                                    id: minuteTick
+                                    NumberAnimation { target: callStripTime; property: "scale"; to: 1.18; duration: 150; easing.type: Easing.OutBack; easing.overshoot: 2.4 }
+                                    NumberAnimation { target: callStripTime; property: "scale"; to: 1; duration: 220; easing.type: Easing.OutCubic }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: 1
+                            Layout.preferredHeight: 24
+                            color: window.themeLineStrong
+                        }
+                    }
+
+                    MouseArea {
+                        id: callStripHit
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (window.callAutoPopup) window.callDismissed = !window.callDismissed
+                            else window.callManualOpen = !window.callManualOpen
+                        }
+                    }
+
+                    // Hover lift: the strip is the only clickable thing on the
+                    // closed pill, and nothing else said so.
+                    scale: callStripHit.pressed ? 0.97 : (callStripHit.containsMouse ? 1.04 : 1)
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.6 } }
+                }
 
                 PixelClock {
                     visible: window.mediaStatus === "Stopped"
@@ -2556,6 +3024,10 @@ PanelWindow {
                         icon: window.islandState.cameraActive ? "󰄀" : "󰄁"
                         lit: window.islandState.cameraActive
                         statusColored: true
+                    }
+                    PillActionDot {
+                        icon: "\udb81\udd7e"
+                        onTriggered: window.openMixer()
                     }
                 }
             }
@@ -5096,55 +5568,118 @@ PanelWindow {
             id: notificationCard
             anchors.fill: parent
             visible: opacity > 0.01
-            opacity: window.notificationVisible ? 1 : 0
+            // On the way in the fade is part of the entrance itself, so it
+            // rides notificationEntry directly; a Behavior here as well would
+            // smooth the curve a second time and flatten drop's overshoot into
+            // an ordinary ease. On the way out there is no entrance driver, so
+            // the Behavior takes over and the card dissolves.
+            opacity: window.notificationVisible
+                ? 0.25 + 0.75 * Math.max(0, Math.min(1, window.notificationEntry))
+                : 0
             z: 18
-            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            Behavior on opacity {
+                enabled: !window.notificationVisible
+                NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+            }
 
+            // Layout is untouched by any of this: a transform only moves the
+            // rendered result, so every style shares one set of anchors and
+            // switching between them mid-session needs no relayout.
+            //
+            // `e` runs past 1 on the styles that overshoot, and each style
+            // leans on that differently — drop turns the overshoot into a
+            // squash against the bottom of its fall, which is what sells it as
+            // weight rather than as a card that merely translates.
+            readonly property real e: window.notificationEntry
+            readonly property string style: window.notificationEntrance
+
+            transform: [
+                Scale {
+                    origin.x: notificationCard.width / 2
+                    // Unfold pivots on the top edge so the card opens downward
+                    // out of the pill, rather than growing from its middle.
+                    origin.y: notificationCard.style === "unfold"
+                        ? 0 : notificationCard.height / 2
+                    xScale: {
+                        switch (notificationCard.style) {
+                        // Stretched along the direction of travel, then
+                        // released — the standard trick for making a fast
+                        // linear move read as motion instead of teleporting.
+                        case "slide": return 1 + (1 - notificationCard.e) * 0.12
+                        case "pop": return 0.62 + 0.38 * notificationCard.e
+                        case "fade": return 0.97 + 0.03 * notificationCard.e
+                        // Widens as it squashes, so the card keeps its area.
+                        case "drop": return 1 + Math.max(0, notificationCard.e - 1) * 0.55
+                        default: return 1
+                        }
+                    }
+                    yScale: {
+                        switch (notificationCard.style) {
+                        case "pop": return 0.62 + 0.38 * notificationCard.e
+                        case "fade": return 0.97 + 0.03 * notificationCard.e
+                        case "unfold": return Math.max(0, notificationCard.e)
+                        // Long while falling, squat for the instant it lands.
+                        case "drop": return 1 + (1 - notificationCard.e) * 0.14
+                        default: return 1
+                        }
+                    }
+                },
+                Translate {
+                    x: notificationCard.style === "slide"
+                        ? (1 - notificationCard.e) * 78 : 0
+                    y: notificationCard.style === "drop"
+                        ? (notificationCard.e - 1) * 46 : 0
+                }
+            ]
+
+            // The contents ride their own driver, a beat behind the card: the
+            // plate lands, then the logo and the text catch up to it. A
+            // transform only moves the rendered result, so the layout below is
+            // laid out exactly once no matter how it arrives.
             ColumnLayout {
+                id: notificationContent
                 anchors { fill: parent; leftMargin: 18; rightMargin: 22; topMargin: 14; bottomMargin: 18 }
                 spacing: 10
 
+                readonly property real c: window.notificationContentEntry
+                opacity: notificationCard.style === "fade" ? 1 : notificationContent.c
+
+                transform: [
+                    Translate {
+                        // Slide's contents travel further than its card, so the
+                        // two arrive at different speeds and the card reads as
+                        // having depth rather than as one flat sheet.
+                        x: notificationCard.style === "slide"
+                            ? (1 - notificationContent.c) * 26 : 0
+                        y: notificationCard.style === "drop"
+                            ? (1 - notificationContent.c) * -12 : 0
+                    },
+                    Scale {
+                        origin.x: notificationContent.width / 2
+                        origin.y: notificationContent.height / 2
+                        xScale: notificationCard.style === "pop"
+                            ? 0.9 + 0.1 * notificationContent.c : 1
+                        yScale: notificationCard.style === "pop"
+                            ? 0.9 + 0.1 * notificationContent.c : 1
+                    }
+                ]
+
+                // ------------------------------------------ classic
+                // The original: a big rounded app tile, the sender's name as a
+                // spaced-out label above the headline, and room for two lines
+                // of body. The one to reach for when the body actually matters.
                 RowLayout {
                     Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: window.notificationLayout === "classic"
                     spacing: 14
 
-                    Rectangle {
-                        Layout.preferredWidth: 50
-                        Layout.preferredHeight: 50
+                    NotifLogo {
                         Layout.alignment: Qt.AlignVCenter
+                        size: 50
                         radius: 16
-                        // Tracks whether the logo is really being drawn, not
-                        // just whether one was supplied — with app icons off
-                        // the tile has to become the light initial-badge plate.
-                        readonly property bool showsLogo: window.notificationAppIcon
-                                                          && window.notificationIcon !== ""
-                        color: showsLogo ? window.themeSurfaceAlt : window.themeOn
-                        border.width: 1
-                        border.color: showsLogo ? window.themeLineStrong : window.themeOn
-
-                        Image {
-                            id: notificationLogo
-                            anchors.centerIn: parent
-                            width: 30; height: 30
-                            source: window.notificationAppIcon ? window.notificationIcon : ""
-                            visible: window.notificationAppIcon
-                                     && window.notificationIcon !== "" && status === Image.Ready
-                            sourceSize.width: 64
-                            sourceSize.height: 64
-                            fillMode: Image.PreserveAspectFit
-                            asynchronous: true
-                            smooth: true
-                        }
-
-                        Text {
-                            anchors.centerIn: parent
-                            visible: !notificationLogo.visible
-                            text: window.notificationApp.length > 0 ? window.notificationApp.charAt(0).toUpperCase() : "󰂚"
-                            color: window.themeOnText
-                            font.family: window.notificationApp.length > 0 ? window.uiFont : "Iosevka Nerd Font"
-                            font.weight: Font.Black
-                            font.pixelSize: 22
-                        }
+                        glyphSize: 22
+                        imageSize: 30
                     }
 
                     ColumnLayout {
@@ -5188,6 +5723,285 @@ PanelWindow {
                     // which is usually just the sender's name.
                     PanelChip {
                         Layout.alignment: Qt.AlignTop
+                        visible: window.notificationBody !== ""
+                        icon: window.notificationCopied ? "󰄬" : "󰆏"
+                        lit: window.notificationCopied
+                        onTriggered: window.copyNotificationContent()
+                    }
+                }
+
+                // ------------------------------------------ compact
+                // One line of everything. The island barely grows, so a
+                // notification costs almost none of the screen — the app name
+                // is dropped entirely, since the logo already says it.
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: window.notificationLayout === "compact"
+                    spacing: 11
+
+                    NotifLogo {
+                        Layout.alignment: Qt.AlignVCenter
+                        size: 34
+                        radius: 11
+                        glyphSize: 15
+                        imageSize: 21
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 1
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: window.notificationTitle || i18n.newNotification
+                            color: window.themeText
+                            font.family: window.uiFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 14
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: window.notificationBody !== ""
+                            text: window.notificationBody
+                            color: window.themeSubtext
+                            font.family: window.uiFont
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    PanelChip {
+                        Layout.alignment: Qt.AlignVCenter
+                        visible: window.notificationBody !== ""
+                        icon: window.notificationCopied ? "󰄬" : "󰆏"
+                        lit: window.notificationCopied
+                        onTriggered: window.copyNotificationContent()
+                    }
+                }
+
+                // ------------------------------------------ stacked
+                // Centred and vertical, with the logo on top. The tallest of
+                // the five and the least like a list row — it reads as an
+                // announcement rather than as an item.
+                Item {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: window.notificationLayout === "stacked"
+
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        width: parent.width - 40
+                        spacing: 7
+
+                        NotifLogo {
+                            Layout.alignment: Qt.AlignHCenter
+                            size: 44
+                            radius: 15
+                            glyphSize: 20
+                            imageSize: 27
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: window.notificationApp || i18n.notification
+                            color: window.themeMuted
+                            font.family: window.uiFont
+                            font.weight: Font.DemiBold
+                            font.capitalization: Font.AllUppercase
+                            font.letterSpacing: 1.4
+                            font.pixelSize: 9
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: window.notificationTitle || i18n.newNotification
+                            color: window.themeText
+                            font.family: window.uiFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 16
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: window.notificationBody || i18n.emptyNotification
+                            color: window.themeSubtext
+                            font.family: window.uiFont
+                            font.pixelSize: 11
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    PanelChip {
+                        anchors.top: parent.top
+                        anchors.right: parent.right
+                        visible: window.notificationBody !== ""
+                        icon: window.notificationCopied ? "󰄬" : "󰆏"
+                        lit: window.notificationCopied
+                        onTriggered: window.copyNotificationContent()
+                    }
+                }
+
+                // ------------------------------------------ rail
+                // A filled block down the left edge carrying the logo, against
+                // a plain text column. The block is the only solid mass any of
+                // these five put on screen, which is what makes an unread
+                // notification findable out of the corner of an eye.
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: window.notificationLayout === "rail"
+                    spacing: 14
+
+                    Rectangle {
+                        Layout.preferredWidth: 62
+                        Layout.fillHeight: true
+                        radius: 14
+                        color: window.themeOn
+
+                        NotifLogo {
+                            anchors.centerIn: parent
+                            size: 34
+                            radius: 11
+                            glyphSize: 17
+                            imageSize: 24
+                            // The rail is already the plate, so the logo sits
+                            // on it bare rather than bringing a second one —
+                            // and its letter reads against the rail.
+                            plated: false
+                            glyphColor: window.themeOnText
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 3
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: window.notificationApp || i18n.notification
+                                color: window.themeMuted
+                                font.family: window.uiFont
+                                font.weight: Font.DemiBold
+                                font.capitalization: Font.AllUppercase
+                                font.letterSpacing: 1.2
+                                font.pixelSize: 9
+                                elide: Text.ElideRight
+                            }
+
+                            PanelChip {
+                                visible: window.notificationBody !== ""
+                                icon: window.notificationCopied ? "󰄬" : "󰆏"
+                                lit: window.notificationCopied
+                                onTriggered: window.copyNotificationContent()
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: window.notificationTitle || i18n.newNotification
+                            color: window.themeText
+                            font.family: window.uiFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 15
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: window.notificationBody || i18n.emptyNotification
+                            color: window.themeSubtext
+                            font.family: window.uiFont
+                            font.pixelSize: 11
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                // ------------------------------------------ minimal
+                // The lightest of the five: no plate behind the logo and no
+                // second line of chrome — the app's icon sits bare against the
+                // card, the headline gets the largest type of any design, and
+                // the sender's name rides beside it as a small label.
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: window.notificationLayout === "minimal"
+                    spacing: 13
+
+                    NotifLogo {
+                        Layout.alignment: Qt.AlignVCenter
+                        size: 32
+                        glyphSize: 16
+                        imageSize: 30
+                        // Bare against the card: a plate here would put the
+                        // heaviest element in the lightest design.
+                        plated: false
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 4
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            // The headline takes the slack and the sender label
+                            // keeps its natural width. Sizing either one as a
+                            // fraction of the row makes the row's width depend
+                            // on its own child, which Layouts resolve by
+                            // rearranging forever.
+                            Text {
+                                Layout.fillWidth: true
+                                text: window.notificationTitle || i18n.newNotification
+                                color: window.themeText
+                                font.family: window.uiFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 17
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                Layout.maximumWidth: 130
+                                text: window.notificationApp || i18n.notification
+                                color: window.themeMuted
+                                font.family: window.uiFont
+                                font.weight: Font.DemiBold
+                                font.capitalization: Font.AllUppercase
+                                font.letterSpacing: 1.2
+                                font.pixelSize: 9
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: window.notificationBody || i18n.emptyNotification
+                            color: window.themeSubtext
+                            font.family: window.uiFont
+                            font.pixelSize: 12
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    PanelChip {
+                        Layout.alignment: Qt.AlignVCenter
                         visible: window.notificationBody !== ""
                         icon: window.notificationCopied ? "󰄬" : "󰆏"
                         lit: window.notificationCopied
@@ -5454,12 +6268,180 @@ PanelWindow {
                 }
             }
 
+            // ------------------------------------------------- live / detailed
+            // The whole island given over to the call: the app it is on, who
+            // it is with, a running clock large enough to read across the
+            // room, and the mic — the one control you actually reach for
+            // mid-conversation. Only ever shown for a connected call.
+            Item {
+                id: detailView
+                anchors.fill: parent
+                visible: opacity > 0.01
+                opacity: window.callDetailView && !window.callBigView ? 1 : 0
+                scale: window.callDetailView && !window.callBigView ? 1 : 0.94
+                Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutBack; easing.overshoot: 0.6 } }
+
+                // Resolved from the app PipeWire named, so the avatar is the
+                // messenger's own logo rather than a generic handset.
+                readonly property string appIcon: window.resolveAppIcon(window.islandState.call.app, "")
+
+                ColumnLayout {
+                    anchors { fill: parent; leftMargin: 20; rightMargin: 20; topMargin: 16; bottomMargin: 16 }
+                    spacing: 14
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        // Avatar with a slow ring breathing around it — the
+                        // island's standing signal for "this is live".
+                        Item {
+                            Layout.preferredWidth: 62
+                            Layout.preferredHeight: 62
+                            Layout.alignment: Qt.AlignVCenter
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: 62 + (1 - window.ringPulse) * 12
+                                height: width
+                                radius: width / 2
+                                color: "transparent"
+                                border.width: 1.4
+                                border.color: Qt.rgba(0.4, 0.88, 0.58, window.ringPulse * 0.42)
+                                visible: window.callPulseRing
+                            }
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: 58; height: 58; radius: 29
+                                color: window.themeSurface
+                                border.width: 1
+                                border.color: window.themeLineStrong
+
+                                Image {
+                                    id: detailAppIcon
+                                    anchors.centerIn: parent
+                                    width: 32; height: 32
+                                    source: detailView.appIcon
+                                    visible: detailView.appIcon !== "" && status === Image.Ready
+                                    sourceSize.width: 64
+                                    sourceSize.height: 64
+                                    fillMode: Image.PreserveAspectFit
+                                    asynchronous: true
+                                    smooth: true
+                                }
+                                Text {
+                                    anchors.centerIn: parent
+                                    visible: !detailAppIcon.visible
+                                    text: "󰏶"
+                                    color: window.themeText
+                                    font.family: window.iconFont
+                                    font.pixelSize: 24
+                                }
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
+                            spacing: 3
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 7
+
+                                Rectangle {
+                                    Layout.alignment: Qt.AlignVCenter
+                                    Layout.preferredWidth: 7
+                                    Layout.preferredHeight: 7
+                                    radius: 3.5
+                                    color: window.themeStatusLive
+                                    opacity: 0.35 + Math.abs(Math.sin(window.visualPhase * 0.9)) * 0.65
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: window.callDisplayApp + " · " + i18n.callInProgress
+                                    color: window.themeMuted
+                                    font.family: window.uiFont
+                                    font.weight: Font.DemiBold
+                                    font.capitalization: Font.AllUppercase
+                                    font.letterSpacing: 1.2
+                                    font.pixelSize: 9
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            // The whole point of the detailed view. When the
+                            // call never rang here (dialled out, or answered
+                            // elsewhere) there is no name to show and this
+                            // falls back to naming the call itself.
+                            Text {
+                                Layout.fillWidth: true
+                                text: window.callDisplayTitle
+                                color: window.themeText
+                                font.family: window.uiFont
+                                font.weight: Font.Bold
+                                font.pixelSize: 21
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        // Big clock, monospaced digits so it does not jitter
+                        // sideways every time a digit changes width.
+                        Text {
+                            Layout.alignment: Qt.AlignVCenter
+                            text: window.formatCallTime(window.callElapsed)
+                            color: window.themeText
+                            font.family: window.uiFont
+                            font.weight: Font.Bold
+                            font.pixelSize: 26
+                            font.features: ({ "tnum": 1 })
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        CallDetailButton {
+                            Layout.fillWidth: true
+                            icon: window.islandState.micMuted ? "󰍭" : "󰍬"
+                            label: window.islandState.micMuted ? i18n.callMicOff : i18n.callMicOn
+                            active: window.islandState.micMuted
+                            onTriggered: window.run(["mic-mute"])
+                        }
+
+                        CallDetailButton {
+                            Layout.fillWidth: true
+                            icon: "󰅖"
+                            label: i18n.callHide
+                            onTriggered: {
+                                if (window.callAutoPopup) window.callDismissed = true
+                                else window.callManualOpen = false
+                            }
+                        }
+
+                        // Only where the app gave us a hangup action to call —
+                        // there is no generic way to end someone else's call.
+                        CallDetailButton {
+                            Layout.fillWidth: true
+                            visible: window.callDeclineId !== ""
+                            icon: "󰏗"
+                            label: i18n.callEnd
+                            danger: true
+                            onTriggered: window.rejectCall()
+                        }
+                    }
+                }
+            }
+
             // ---------------------------------------------------------- live / talking
             Item {
                 id: compactView
                 anchors.fill: parent
                 visible: opacity > 0.01
-                opacity: window.callBigView ? 0 : 1
+                opacity: window.callBigView || window.callDetailView ? 0 : 1
                 scale: window.callBigView ? 0.92 : 1
                 Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                 Behavior on scale { NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: 0.5 } }
@@ -5516,7 +6498,7 @@ PanelWindow {
                             Layout.fillWidth: true
                             scale: callCard.durationPop
                             transformOrigin: Item.Left
-                            text: callCard.live ? window.formatTime(window.islandState.call.duration) : i18n.callConnecting
+                            text: callCard.live ? window.formatCallTime(window.callElapsed) : i18n.callConnecting
                             color: window.themeSubtext
                             font.family: window.uiFont
                             font.pixelSize: 11
@@ -5607,6 +6589,122 @@ PanelWindow {
     }
 
     // ------------------------------------------------------------- components
+    // A wide labelled button for the detailed call screen. Wider and plainer
+    // than PanelChip because these are reached for mid-conversation, when the
+    // user is not looking closely and a bare glyph is not enough.
+    component CallDetailButton: Rectangle {
+        id: callBtn
+
+        property string icon: ""
+        property string label: ""
+        // On, in the sense of "this is currently doing something to the call"
+        // — a muted mic, not a pressed button.
+        property bool active: false
+        property bool danger: false
+
+        signal triggered()
+
+        implicitHeight: 40
+        radius: 13
+        color: callBtn.danger
+            ? (callBtnHit.containsMouse ? "#3a2224" : window.themeSurface)
+            : (callBtn.active ? window.themeOn
+                : (callBtnHit.containsMouse ? window.themeChipHover : window.themeSurface))
+        Behavior on color { ColorAnimation { duration: 150 } }
+        border.width: 1
+        border.color: callBtn.danger ? "#6b3438" : window.themeLineStrong
+        scale: callBtnHit.pressed ? 0.96 : 1
+        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+
+        readonly property color tone: callBtn.danger ? "#e2727a"
+            : (callBtn.active ? window.themeOnText : window.themeText)
+
+        RowLayout {
+            anchors.centerIn: parent
+            spacing: 8
+
+            Text {
+                text: callBtn.icon
+                color: callBtn.tone
+                font.family: window.iconFont
+                font.pixelSize: 16
+            }
+            Text {
+                text: callBtn.label
+                color: callBtn.tone
+                font.family: window.uiFont
+                font.weight: Font.DemiBold
+                font.pixelSize: 12
+            }
+        }
+
+        MouseArea {
+            id: callBtnHit
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: callBtn.triggered()
+        }
+    }
+
+    // The app's icon, or its initial when there is no icon (or icons are off).
+    // Shared by all five notification layouts so the fallback rules — which is
+    // the fiddly half — are written once and every layout inherits them.
+    component NotifLogo: Rectangle {
+        id: notifLogo
+
+        property int size: 50
+        property int glyphSize: 22
+        property int imageSize: 30
+        // False where the layout wants the icon bare — either because it
+        // already provides a plate of its own (rail) or because a plate would
+        // be too heavy for it (minimal).
+        property bool plated: true
+        // The initial-badge letter, drawn when there is no icon to show. On a
+        // plate it has to read against the plate; bare it has to read against
+        // the card, which is the opposite colour.
+        property color glyphColor: notifLogo.plated ? window.themeOnText : window.themeText
+
+        readonly property bool showsLogo: window.notificationAppIcon
+                                          && window.notificationIcon !== ""
+                                          && logoImage.status === Image.Ready
+
+        implicitWidth: notifLogo.size
+        implicitHeight: notifLogo.size
+        Layout.preferredWidth: notifLogo.size
+        Layout.preferredHeight: notifLogo.size
+        radius: 16
+        color: !notifLogo.plated ? "transparent"
+             : (notifLogo.showsLogo ? window.themeSurfaceAlt : window.themeOn)
+        border.width: notifLogo.plated ? 1 : 0
+        border.color: notifLogo.showsLogo ? window.themeLineStrong : window.themeOn
+
+        Image {
+            id: logoImage
+            anchors.centerIn: parent
+            width: notifLogo.imageSize
+            height: notifLogo.imageSize
+            source: window.notificationAppIcon ? window.notificationIcon : ""
+            visible: notifLogo.showsLogo
+            sourceSize.width: 64
+            sourceSize.height: 64
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            smooth: true
+        }
+
+        Text {
+            anchors.centerIn: parent
+            visible: !logoImage.visible
+            text: window.notificationApp.length > 0
+                  ? window.notificationApp.charAt(0).toUpperCase() : "󰂚"
+            color: notifLogo.glyphColor
+            font.family: window.notificationApp.length > 0 ? window.uiFont : "Iosevka Nerd Font"
+            font.weight: Font.Black
+            font.pixelSize: notifLogo.glyphSize
+        }
+    }
+
     component Spectrum: Row {
         id: spectrum
         property int bars: 16
@@ -5721,6 +6819,55 @@ PanelWindow {
             color: dot.lit ? dot.litColor : window.themeTrack
             Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
             Behavior on color { ColorAnimation { duration: 200 } }
+        }
+    }
+
+    // StatusDot'un tiklanabilir kardesi: bir durum bildirmiyor, bir sey aciyor.
+    // Ayni 22x30 kutuyu kullaniyor ki durum noktalariyla ayni hizada dursun.
+    component PillActionDot: Item {
+        id: actionDot
+        property string icon: ""
+        signal triggered()
+
+        width: 22
+        height: 30
+
+        Rectangle {
+            anchors.centerIn: actionIcon
+            width: 26
+            height: 26
+            radius: 9
+            color: actionHit.containsMouse ? window.themeChipHover : "transparent"
+            Behavior on color { ColorAnimation { duration: 160 } }
+        }
+
+        Text {
+            id: actionIcon
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            text: actionDot.icon
+            color: actionHit.containsMouse ? window.themeText : window.themeMuted
+            font.family: window.iconFont
+            font.pixelSize: 17
+            Behavior on color { ColorAnimation { duration: 200 } }
+        }
+
+        Rectangle {
+            anchors.bottom: parent.bottom
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: actionHit.containsMouse ? 14 : 4
+            height: 2.5
+            radius: 1.25
+            color: actionHit.containsMouse ? window.themeText : window.themeTrack
+            Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+            Behavior on color { ColorAnimation { duration: 200 } }
+        }
+
+        MouseArea {
+            id: actionHit
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: actionDot.triggered()
         }
     }
 

@@ -25,8 +25,35 @@ mkdir -p "$thumbnail_dir"
 mkdir -p "$config_dir"
 
 # Apps whose simultaneous playback + capture stream counts as an active call.
+# Matched against PulseAudio's application.name / process.binary, both of which
+# vary by packaging — hence the loose alternatives (Element ships as both
+# "element" and "element-desktop", Teams as "teams" and "teams-for-linux").
 # Extend this pattern to cover other VoIP clients as needed.
-call_app_pattern='signal|telegram|whatsapp'
+call_app_pattern='signal|telegram|whatsapp|element|discord|zoom|teams|skype|jitsi|mumble|linphone|ferdium|webcord|vesktop'
+
+# Who the call is with, dug out of the calling app's own window title. PipeWire
+# knows a call is happening but never who is on the other end, and only an app
+# that rang us through the notification server tells us a name — a call the user
+# placed themselves arrives with nothing. The title is the one thing left, and
+# it does carry the room/contact for most clients:
+#
+#   Element  "Element [1] | sess"   -> "sess"
+#   Signal   "Signal"               -> "" (nothing to take, and that is fine)
+#
+# Unread counters are dropped, the title is split on the separators these apps
+# use, and the longest piece that is not just the app's own name wins. A wrong
+# guess here is only ever a label, so this errs toward returning nothing.
+call_peer_from_title() {
+    local title="$1" app="$2" part best=""
+    title=$(sed -E 's/\[[0-9]+\]//g' <<<"$title")
+    while IFS= read -r part; do
+        part=$(sed -E 's/^[[:space:]]+|[[:space:]]+$//g' <<<"$part")
+        [[ -z "$part" ]] && continue
+        grep -qiF "$app" <<<"$part" && continue
+        (( ${#part} > ${#best} )) && best="$part"
+    done < <(sed -E 's/ [|—–] | - /\n/g' <<<"$title")
+    printf '%s' "$best"
+}
 
 # Seconds a cached value may go stale before a background refresh is kicked off.
 slow_ttl=4
@@ -469,7 +496,7 @@ json_snapshot() {
     # (our mic) open at once is, by construction, mid-call. This is what lets
     # one heuristic cover Signal/Telegram/WhatsApp without touching any of
     # their private protocols.
-    local call_active=false call_app="" call_duration=0
+    local call_active=false call_app="" call_duration=0 call_start=0 call_peer=""
     if command -v pactl >/dev/null 2>&1; then
         local playback_apps capture_apps
         playback_apps=$(pactl list sink-inputs 2>/dev/null \
@@ -492,6 +519,19 @@ json_snapshot() {
         [[ "$prev_app" == "$call_app" && "$prev_start" =~ ^[0-9]+$ ]] || prev_start=$now_epoch
         jq -nc --arg app "$call_app" --argjson start "$prev_start" '{app:$app,start:$start}' > "$call_state.tmp" && mv "$call_state.tmp" "$call_state"
         call_duration=$((now_epoch - prev_start))
+        # Exported alongside the duration so the UI can tick the timer itself
+        # between snapshots: `duration` alone only advances as fast as this
+        # script is polled, which would make the on-screen clock stall and jump.
+        call_start=$prev_start
+
+        local call_title
+        call_title=$(timeout 1 hyprctl clients -j 2>/dev/null | jq -r --arg app "$call_app" '
+            [ .[]
+              | select(((.class // "") | ascii_downcase | contains($app))
+                    or ((.initialClass // "") | ascii_downcase | contains($app)))
+              | .title // "" ]
+            | map(select(length > 0)) | first // ""' 2>/dev/null || true)
+        [[ -n "$call_title" ]] && call_peer=$(call_peer_from_title "$call_title" "$call_app")
     else
         rm -f "$call_state"
     fi
@@ -551,6 +591,7 @@ json_snapshot() {
         --argjson slow "$slow" \
         --arg activeWindow "$active_window" --argjson fullscreen "$fullscreen" \
         --argjson callActive "$call_active" --arg callApp "$call_app" --argjson callDuration "$call_duration" \
+        --argjson callStart "$call_start" --arg callPeer "$call_peer" \
         --argjson players "$players_json" --argjson apps "$apps_json" \
         --argjson queue "$queue_json" \
         '{
@@ -562,7 +603,7 @@ json_snapshot() {
             brightness:$brightness, battery:$battery, batteryStatus:$batteryStatus,
             batteryTime:$slow.batteryTime, bluetooth:$slow.bluetooth, bluetoothPowered:$slow.bluetoothPowered,
             cameraActive:$slow.cameraActive,
-            call: {active:$callActive, app:$callApp, duration:$callDuration},
+            call: {active:$callActive, app:$callApp, duration:$callDuration, start:$callStart, peer:$callPeer},
             system: {wifi:$slow.wifi, wifiPowered:$slow.wifiPowered, activeWindow:$activeWindow, fullscreen:$fullscreen}
         }'
 }
