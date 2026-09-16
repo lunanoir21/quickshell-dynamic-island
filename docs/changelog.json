@@ -2,41 +2,6 @@
   "$comment": "The changelog's single source of truth. docs/index.html shows the newest entry; docs/changelog.html renders all of them. Add a new object at the TOP of releases[] before every commit — see AGENTS.md. Screenshot paths are relative to docs/.",
   "releases": [
     {
-      "version": "2026.08.31",
-      "date": "2026-08-31",
-      "title": "Pick how a notification looks, and see who you are on a call with",
-      "summary": "A notification card was one fixed layout, and a call already in progress left almost no trace on the island. The card now comes in five genuinely different designs — the island resizes itself to each — with a choice of how it arrives. A connected call keeps a live strip on the closed pill showing who it is with and how long it has been running, and opens into a full call screen with the mic control. Along the way: three more languages and a theme that had been sitting unreleased.",
-      "changes": [
-        { "type": "added", "text": "Five notification card designs — Classic, Compact, Stacked, Rail and Minimal. They are different layouts rather than one card at three densities, and the island takes a different amount of the screen for each, from a 92px single line to a 172px centred announcement." },
-        { "type": "added", "text": "Five entrance animations for that card — Drop, Slide, Pop, Unfold and Fade — with the card's contents arriving a beat behind the card itself. The settings picker runs each one on a loop, so they are chosen by watching rather than by name." },
-        { "type": "added", "text": "A live strip on the closed pill while a call is connected: a moving waveform, who the call is with, and a running timer. The waveform flattens when the mic is muted, so \"the call is live but you are not being heard\" reads at a glance. Clicking it opens the call screen." },
-        { "type": "added", "text": "A detailed call screen — the calling app's own logo, who you are talking to, a large timer, and buttons to mute the mic, hide the card or hang up. Choose between it and the plain bar under Calls." },
-        { "type": "added", "text": "Who a call is with, for calls that never rang here. A call you placed yourself carries no name anywhere, so it is now read out of the calling app's window title (Element's \"Element [1] | sess\" becomes \"sess\"), falling back to the app's name when there is nothing to take." },
-        { "type": "added", "text": "Spanish, French and German across the interface, alongside the existing Turkish and English." },
-        { "type": "added", "text": "A Nude theme." },
-        { "type": "fixed", "text": "Element, Discord, Zoom, Teams, Skype, Jitsi, Mumble, Linphone and several more are now recognised as calling apps. The detection pattern had only ever listed Signal, Telegram and WhatsApp, so a call on any other client showed nothing at all." },
-        { "type": "fixed", "text": "The call timer stalled and then jumped several seconds at a time, because it only advanced when the backend happened to be polled. The call's start time is now exported and the clock is ticked in the interface." },
-        { "type": "fixed", "text": "The live indicator froze the moment the microphone was muted mid-call — the shared animation driver was never running for a connected call, only for a ringing one." },
-        { "type": "fixed", "text": "Inline replies and answering a call from the island went to a hardcoded shell path that is not what every install runs, so both silently did nothing. They now try the entry points that actually exist." },
-        { "type": "changed", "text": "The initial-badge letter shown when an app has no icon takes its colour from whatever it is drawn on, instead of always assuming a plate behind it." }
-      ],
-      "shots": [
-        {
-          "src": "screenshots/changelog/notification-designs.png",
-          "alt": "The Notifications section of the settings window, showing five card design maquettes in a row above five entrance animation previews",
-          "caption": "Chosen by looking",
-          "text": "Each design is drawn to its real proportions, and each entrance runs its own curve on a loop — so both are picked by watching rather than by reading a name.",
-          "wide": true
-        },
-        {
-          "src": "screenshots/changelog/notification-minimal.png",
-          "alt": "A notification card in the Minimal design: the app's logo, a headline, the message body and the sender's name",
-          "caption": "Minimal",
-          "text": "The lightest of the five — the app icon sits bare against the card and the headline takes the largest type of any design."
-        }
-      ]
-    },
-    {
       "version": "2026.08.17",
       "date": "2026-08-17",
       "title": "YouTube covers, fixed for non-English locales",

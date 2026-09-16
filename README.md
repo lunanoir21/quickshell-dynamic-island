@@ -120,17 +120,6 @@ four neutrals.
   inferred from PipeWire instead: an app holding a playback and a capture
   stream open at once is, by construction, mid-call, which is what makes the
   timer honest and also covers a call answered on another device.
-- **Calls in progress** — a connected call keeps a strip on the closed pill:
-  a waveform that flattens when the mic is muted, who the call is with, and a
-  running timer. Clicking it opens a full call screen with the app's logo, a
-  large timer and a mute button; the plain bar is still there as an option.
-  Who the call is *with* comes from the ringing notification when there was
-  one, and otherwise out of the calling app's window title — a call you placed
-  yourself never announces a name anywhere else.
-- **Notification card designs** — five layouts (Classic, Compact, Stacked,
-  Rail, Minimal), each resizing the island to itself, and five entrance
-  animations. Both are picked from previews that show the real thing rather
-  than a label.
 - **Inline reply** — notifications carrying a KDE-style `inline-reply` action
   get a text field and a send button, wired to the real
   `NotificationReplied` D-Bus signal.
