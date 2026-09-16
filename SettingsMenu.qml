@@ -1508,13 +1508,19 @@ PanelWindow {
 
                     Rectangle {
                         id: segHighlight
-                        visible: choice.activeIndex >= 0 && segRepeater.count > choice.activeIndex
+                        // itemAt() can still return null for an index whose
+                        // delegate the Repeater hasn't finished instantiating
+                        // yet, even once count already covers it — guard the
+                        // lookup itself, not just the index range.
+                        readonly property var activeItem: choice.activeIndex >= 0
+                            ? segRepeater.itemAt(choice.activeIndex) : null
+                        visible: activeItem !== null
                         radius: 10
                         height: 32
                         y: 0
                         color: settingsWin.fixedOn
-                        x: segHighlight.visible ? segRepeater.itemAt(choice.activeIndex).x : 0
-                        width: segHighlight.visible ? segRepeater.itemAt(choice.activeIndex).width : 0
+                        x: segHighlight.visible ? segHighlight.activeItem.x : 0
+                        width: segHighlight.visible ? segHighlight.activeItem.width : 0
 
                         Behavior on x { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
                         Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }

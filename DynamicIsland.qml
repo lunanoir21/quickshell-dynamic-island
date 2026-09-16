@@ -771,9 +771,6 @@ PanelWindow {
     // the very control the user is going for.
     property bool showAppVolumes: false
     property bool showQueue: false
-    // Kept as an internal compatibility flag for old settings/runtime state.
-    // There is deliberately no UI or navigation path to quick settings now.
-    property bool showQuickSettings: false
     property bool showCalendarPage: false
     property bool showTimePage: false
     property int calendarMonthOffset: 0
@@ -874,14 +871,12 @@ PanelWindow {
         showAppVolumes = false
         showQueue = false
         showTimePage = false
-        showQuickSettings = false
     }
 
     onShowTimePageChanged: if (showTimePage) {
         showAppVolumes = false
         showQueue = false
         showCalendarPage = false
-        showQuickSettings = false
     }
 
     function pageNext() {
@@ -1432,7 +1427,6 @@ PanelWindow {
         showClock = false
         showAppVolumes = false
         showQueue = false
-        showQuickSettings = false
         showCalendarPage = false
         showTimePage = false
     }
@@ -4317,374 +4311,6 @@ PanelWindow {
                     }
                 }
             }
-            // Legacy quick-controls implementation is intentionally unreachable.
-            // It remains inert here only to avoid destabilising unrelated shell
-            // code while the calendar replaces it completely in the interface.
-            // Built as a physical continuation under the 324px main island.
-            // The parent deliberately does not clip: the island itself clips the
-            // child against its animated height, producing a real downward
-            // reveal instead of a page swap or side-drawer illusion.
-            Item {
-                id: quickSettingsPanel
-                anchors {
-                    top: parent.bottom
-                    horizontalCenter: parent.horizontalCenter
-                    topMargin: 8
-                }
-                width: parent.width - 24
-                height: 230
-                z: 6
-                visible: false
-                opacity: 0
-                scale: window.showQuickSettings ? 1 : 0.965
-                transformOrigin: Item.Top
-
-                Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutQuint } }
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: 26
-                    color: window.themeSurface
-                    border.width: 1
-                    border.color: window.themeLineStrong
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    acceptedButtons: Qt.AllButtons
-                }
-
-                // The small bridge makes the lower sheet read as belonging to
-                // the island above, not as a second floating popup.
-                Rectangle {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.top: parent.top
-                    anchors.topMargin: 7
-                    width: 46
-                    height: 4
-                    radius: 2
-                    color: window.themeLineStrong
-                }
-
-                ColumnLayout {
-                    anchors {
-                        fill: parent
-                        topMargin: 16
-                        leftMargin: 16
-                        rightMargin: 16
-                        bottomMargin: 15
-                    }
-                    spacing: 10
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 28
-                        spacing: 10
-
-                        Rectangle {
-                            Layout.preferredWidth: 28
-                            Layout.preferredHeight: 28
-                            radius: 10
-                            color: window.themeOn
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: "󰒔"
-                                color: window.themeOnText
-                                font.family: window.iconFont
-                                font.pixelSize: 14
-                            }
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: i18n.quickSettingsTitle
-                            color: window.themeText
-                            font.family: window.uiFont
-                            font.weight: Font.Bold
-                            font.pixelSize: 14
-                        }
-
-                        Rectangle {
-                            Layout.preferredWidth: 30
-                            Layout.preferredHeight: 30
-                            radius: 11
-                            color: quickCloseHit.containsMouse ? window.themeChipHover : window.themeChip
-                            Behavior on color { ColorAnimation { duration: 140 } }
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: "󰅃"
-                                color: window.themeSubtext
-                                font.family: window.iconFont
-                                font.pixelSize: 14
-                            }
-                            MouseArea {
-                                id: quickCloseHit
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                onClicked: window.showQuickSettings = false
-                            }
-                        }
-                    }
-
-                    component QuickControlSlider: Rectangle {
-                        id: controlCard
-                        property string controlIcon: ""
-                        property string controlLabel: ""
-                        property real sourceValue: 0
-                        property real controlValue: sourceValue
-                        property bool controlActive: true
-                        signal moved(real value)
-                        signal iconTriggered()
-
-                        onSourceValueChanged: if (!quickSlider.pressed) controlValue = sourceValue
-
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        radius: 18
-                        color: controlHover.hovered ? window.themeChipHover : window.themeChip
-                        border.width: 1
-                        border.color: controlHover.hovered ? window.themeLineStrong : window.themeLine
-                        Behavior on color { ColorAnimation { duration: 140 } }
-                        Behavior on border.color { ColorAnimation { duration: 140 } }
-
-                        HoverHandler { id: controlHover }
-
-                        Timer {
-                            id: sliderThrottle
-                            interval: 55
-                            onTriggered: controlCard.moved(controlCard.controlValue)
-                        }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 12
-                            spacing: 10
-
-                            Rectangle {
-                                Layout.preferredWidth: 34
-                                Layout.preferredHeight: 34
-                                radius: 12
-                                color: controlCard.controlActive ? window.themeOn : window.themeSurfaceAlt
-
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: controlCard.controlIcon
-                                    color: controlCard.controlActive ? window.themeOnText : window.themeMuted
-                                    font.family: window.iconFont
-                                    font.pixelSize: 17
-                                }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    onClicked: controlCard.iconTriggered()
-                                }
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: controlCard.controlLabel
-                                        color: window.themeSubtext
-                                        font.family: window.uiFont
-                                        font.weight: Font.DemiBold
-                                        font.pixelSize: 10
-                                    }
-                                    Text {
-                                        text: Math.round(controlCard.controlValue) + "%"
-                                        color: window.themeMuted
-                                        font.family: window.uiFont
-                                        font.pixelSize: 9
-                                    }
-                                }
-
-                                Slider {
-                                    id: quickSlider
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 18
-                                    from: 0
-                                    to: 100
-                                    value: controlCard.controlValue
-                                    onMoved: {
-                                        controlCard.controlValue = value
-                                        if (!sliderThrottle.running) sliderThrottle.start()
-                                    }
-                                    onPressedChanged: {
-                                        window.setInteracting(pressed)
-                                        if (!pressed) {
-                                            sliderThrottle.stop()
-                                            controlCard.moved(controlCard.controlValue)
-                                        }
-                                    }
-
-                                    background: Rectangle {
-                                        x: quickSlider.leftPadding
-                                        y: quickSlider.topPadding + quickSlider.availableHeight / 2 - height / 2
-                                        width: quickSlider.availableWidth
-                                        height: 5
-                                        radius: 2.5
-                                        color: window.themeTrack
-                                        Rectangle {
-                                            width: quickSlider.visualPosition * parent.width
-                                            height: parent.height
-                                            radius: parent.radius
-                                            color: controlCard.controlActive ? window.themeOn : window.themeMuted
-                                        }
-                                    }
-                                    handle: Rectangle {
-                                        x: quickSlider.leftPadding + quickSlider.visualPosition * (quickSlider.availableWidth - width)
-                                        y: quickSlider.topPadding + quickSlider.availableHeight / 2 - height / 2
-                                        implicitWidth: quickSlider.pressed ? 16 : 13
-                                        implicitHeight: implicitWidth
-                                        radius: width / 2
-                                        color: window.themeText
-                                        border.width: 3
-                                        border.color: window.themeSurface
-                                        Behavior on implicitWidth { NumberAnimation { duration: 120 } }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 62
-                        Layout.minimumHeight: 62
-                        Layout.maximumHeight: 62
-                        spacing: 10
-
-                        QuickControlSlider {
-                            controlIcon: window.islandState.muted ? "󰝟" : "󰕾"
-                            controlLabel: i18n.volumeShort
-                            sourceValue: window.islandState.muted ? 0 : window.islandState.volume
-                            controlActive: !window.islandState.muted
-                            onMoved: value => window.runDirect(["wpctl", "set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SINK@", Math.round(value) + "%"])
-                            onIconTriggered: window.run(["mute"])
-                        }
-
-                        QuickControlSlider {
-                            controlIcon: "󰃠"
-                            controlLabel: i18n.brightnessShort
-                            sourceValue: window.islandState.brightness
-                            onMoved: value => window.runDirect(["brightnessctl", "set", Math.round(value) + "%"])
-                        }
-                    }
-
-                    component QuickActionTile: Rectangle {
-                        id: tile
-                        property string tileIcon: ""
-                        property string tileLabel: ""
-                        property bool active: false
-                        property bool danger: false
-                        signal triggered()
-
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        radius: 17
-                        color: tile.active ? window.themeOn
-                            : (tileHit.containsMouse ? window.themeChipHover : window.themeChip)
-                        border.width: 1
-                        border.color: tile.danger ? Qt.rgba(window.themeStatusAlert.r, window.themeStatusAlert.g, window.themeStatusAlert.b, 0.42)
-                                                        : (tile.active ? window.themeOn : window.themeLine)
-                        Behavior on color { ColorAnimation { duration: 160 } }
-                        Behavior on border.color { ColorAnimation { duration: 160 } }
-                        scale: tileHit.pressed ? 0.96 : 1
-                        Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 10
-                            anchors.rightMargin: 10
-                            spacing: 8
-
-                            Rectangle {
-                                Layout.preferredWidth: 30
-                                Layout.preferredHeight: 30
-                                radius: 11
-                                color: tile.active ? Qt.rgba(window.themeOnText.r, window.themeOnText.g, window.themeOnText.b, 0.14)
-                                                   : window.themeSurfaceAlt
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: tile.tileIcon
-                                    font.family: window.iconFont
-                                    font.pixelSize: 16
-                                    color: tile.active ? window.themeOnText
-                                        : (tile.danger ? window.themeStatusAlert : window.themeText)
-                                }
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: tile.tileLabel
-                                font.family: window.uiFont
-                                font.weight: Font.DemiBold
-                                font.pixelSize: 9
-                                color: tile.active ? window.themeOnText : window.themeSubtext
-                                wrapMode: Text.WordWrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                            }
-                        }
-
-                        MouseArea {
-                            id: tileHit
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: tile.triggered()
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.preferredHeight: 78
-                        Layout.minimumHeight: 78
-                        Layout.maximumHeight: 78
-                        spacing: 8
-
-                        QuickActionTile {
-                            tileIcon: window.dndActive ? "󰂛" : "󰂚"
-                            tileLabel: i18n.qsDnd
-                            active: window.dndActive
-                            onTriggered: window.dndActive = !window.dndActive
-                        }
-
-                        QuickActionTile {
-                            tileIcon: window.islandState.bluetoothPowered ? "󰂯" : "󰂲"
-                            tileLabel: i18n.qsBluetooth
-                            active: window.islandState.bluetoothPowered
-                            onTriggered: window.run(["bluetooth-toggle"])
-                        }
-
-                        QuickActionTile {
-                            tileIcon: window.islandState.system.wifiPowered ? "󰖩" : "󰖪"
-                            tileLabel: i18n.qsWifi
-                            active: window.islandState.system.wifiPowered
-                            onTriggered: window.run(["wifi-toggle"])
-                        }
-
-                        QuickActionTile {
-                            tileIcon: "󰌾"
-                            tileLabel: i18n.qsLock
-                            onTriggered: window.runDirect(["bash", "-c", "~/.config/hypr/scripts/lock.sh"])
-                        }
-
-                        QuickActionTile {
-                            tileIcon: "󰍃"
-                            tileLabel: i18n.qsLogout
-                            danger: true
-                            onTriggered: window.runDirect(["hyprctl", "dispatch", "exit"])
-                        }
-                    }
-                }
-            }
 
         }
 
@@ -5786,9 +5412,12 @@ PanelWindow {
             implicitHeight: callBtn.size
             radius: callBtn.size / 2
             opacity: callBtn.callEnabled ? 1 : 0.35
+            // Semantic green/red surfaces come from the theme tokens rather
+            // than their own literals, so a palette change can't drift these
+            // out of sync with the rest of the "live"/"alert" colouring.
             color: callBtn.accept
-                ? (btnHit.containsMouse ? "#3aa863" : "#276b41")
-                : (btnHit.containsMouse ? "#c24a4e" : "#7a3235")
+                ? (btnHit.containsMouse ? window.themeStatusLive : Qt.darker(window.themeStatusLive, 1.5))
+                : (btnHit.containsMouse ? window.themeStatusAlert : Qt.darker(window.themeStatusAlert, 1.5))
             scale: btnHit.pressed ? 0.88 : callBtn.popScale
             Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
             Behavior on color { ColorAnimation { duration: 140 } }
