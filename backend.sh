@@ -13,6 +13,7 @@ call_state="$base_dir/call.json"
 # value: it only means anything while that player is still running, so it
 # belongs next to call.json, not in the user's settings.
 player_state="$base_dir/player"
+players_cache="$base_dir/players.cache"
 lyrics_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/lyrics"
 thumbnail_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/thumbnails"
 # Where the UI persists user choices (currently just the language). Created
@@ -34,6 +35,10 @@ slow_ttl=4
 # lyrics keeps them forever (they don't change), but a miss is worth retrying
 # eventually since LRCLIB is community-contributed and gains tracks over time.
 lyrics_miss_ttl=604800
+# The player list changes so rarely that polling playerctl -l every ~800ms is
+# pure waste. A short-lived on-disk cache avoids the call when the last
+# snapshot is still fresh.
+players_ttl=2
 
 # Every playerctl call in this script goes through the selection resolved here.
 # Without -p, playerctl targets whichever instance it happens to list first,
@@ -44,7 +49,14 @@ selected_player=""
 player_args=()
 
 resolve_player() {
-    players_raw=$(timeout 1 playerctl -l 2>/dev/null || true)
+    local use_cached="${1:-}"
+    if [[ "$use_cached" == "cached" ]] && [[ -s "$players_cache" ]] && (( $(file_age "$players_cache") <= players_ttl )); then
+        players_raw=$(<"$players_cache")
+    else
+        players_raw=$(timeout 1 playerctl -l 2>/dev/null || true)
+        printf '%s\n' "$players_raw" > "$players_cache.tmp"
+        mv "$players_cache.tmp" "$players_cache"
+    fi
     selected_player=""
     [[ -s "$player_state" ]] && selected_player=$(<"$player_state")
     # A stored pick only means something while that instance is still alive.
@@ -146,6 +158,28 @@ file_age() {
         echo 999999
     fi
 }
+
+# The thumbnail and lyrics caches have no upper bound of their own — a track
+# played once leaves a cover behind forever and every not-found lookup drops a
+# negative-cache marker, so without eviction both directories would grow
+# without limit. Sweep once a day in the background so an old download doesn't
+# add to a poll as it runs; the day marker keeps the sweep itself at one
+# stat per invocation.
+if (( $(file_age "$base_dir/.cache_swept") > 86400 )); then
+    (
+        # Covers change when a video's art does, and abandoned tabs leak them
+        # continuously. A month is far longer than any track stays relevant.
+        # Lyrics are older still: a hit is kept forever by design, so 180 days
+        # only ever reaps markers and tracks that stopped mattering long ago.
+        find "$thumbnail_dir" -type f -mtime +30 -delete
+        find "$lyrics_dir" -type f -mtime +180 -delete
+        # file_age tests `-s` (non-empty), so the marker has to actually hold
+        # a byte or two — a plain `touch` leaves a 0-byte file that reads as
+        # "missing" forever, which would run this sweep on every poll instead
+        # of once a day.
+        date +%s > "$base_dir/.cache_swept"
+    ) >/dev/null 2>&1 &
+fi
 
 # Prints the LRC (or plain) lyrics for a track, fetching them once and then
 # serving every later request from disk.
@@ -273,7 +307,12 @@ refresh_slow() {
 app_streams() {
     command -v pactl >/dev/null 2>&1 || { printf '[]'; return; }
 
-    pactl list sink-inputs 2>/dev/null | awk '
+    # Sink inputs are passed in by the caller: the same `pactl list sink-inputs`
+    # output already feeds the call-detection heuristic below, so shelling out a
+    # second time per snapshot just to rebuild the same ~10ms parse is wasted
+    # work. Parsing piped-in text keeps app_streams standalone for callers that
+    # don't need the call heuristic.
+    printf '%s' "$1" | awk '
         function unquote(s) { sub(/^[^=]*= "/, "", s); sub(/"$/, "", s); return s }
         function emit() {
             if (idx == "") return
@@ -391,7 +430,10 @@ json_snapshot() {
     # update while playing, whereas playerctl's normalized {{position}} adds
     # elapsed real time on top of it — the only one of the two that tracks a
     # playing track at all.
-    resolve_player
+    # The player list is on a 2s cache so the ~800ms poll doesn't shell out to
+    # playerctl -l every time; interactive actions below always pass nothing and
+    # get the live list instead.
+    resolve_player cached
     media=$(timeout 1 playerctl "${player_args[@]}" metadata --format \
         '{{status}}§|§{{title}}§|§{{artist}}§|§{{mpris:artUrl}}§|§{{mpris:length}}§|§{{playerName}}§|§{{position}}§|§{{xesam:url}}' \
         2>/dev/null | head -n1 || true)
@@ -469,11 +511,16 @@ json_snapshot() {
     # (our mic) open at once is, by construction, mid-call. This is what lets
     # one heuristic cover Signal/Telegram/WhatsApp without touching any of
     # their private protocols.
+    local sink_inputs_raw=""
+    if command -v pactl >/dev/null 2>&1; then
+        # Sink inputs are read once and shared between the call heuristic and
+        # the mixer panel rather than shelling out to pactl twice per snapshot.
+        sink_inputs_raw=$(pactl list sink-inputs 2>/dev/null || true)
+    fi
     local call_active=false call_app="" call_duration=0
     if command -v pactl >/dev/null 2>&1; then
         local playback_apps capture_apps
-        playback_apps=$(pactl list sink-inputs 2>/dev/null \
-            | awk -F'= ' '/application\.(name|process\.binary)/ {gsub(/"/,"",$2); print tolower($2)}')
+        playback_apps=$(awk -F'= ' '/application\.(name|process\.binary)/ {gsub(/"/,"",$2); print tolower($2)}' <<<"$sink_inputs_raw")
         capture_apps=$(pactl list source-outputs 2>/dev/null \
             | awk -F'= ' '/application\.(name|process\.binary)/ {gsub(/"/,"",$2); print tolower($2)}')
         if [[ -n "$playback_apps" && -n "$capture_apps" ]]; then
@@ -528,7 +575,7 @@ json_snapshot() {
     [[ -n "$players_json" ]] || players_json="[]"
 
     local apps_json="[]"
-    [[ "$want" == *apps* ]] && apps_json=$(app_streams)
+    [[ "$want" == *apps* ]] && apps_json=$(app_streams "$sink_inputs_raw")
     [[ -n "$apps_json" ]] || apps_json="[]"
 
     local queue_json='{"supported":false,"tracks":[]}'
