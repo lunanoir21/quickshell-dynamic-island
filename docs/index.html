@@ -17,7 +17,7 @@
 <meta name="twitter:description" content="A monochrome notch-style overlay for Hyprland.">
 <meta name="twitter:image" content="cover.png">
 <meta name="theme-color" content="#08080a">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='5' fill='%230d0d0f'/%3E%3Crect x='3' y='6' width='2' height='4' fill='%23f4f4f5'/%3E%3Crect x='7' y='4' width='2' height='8' fill='%23f4f4f5'/%3E%3Crect x='11' y='6' width='2' height='4' fill='%23f4f4f5'/%3E%3C/svg%3E">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
 
 <style>
 @font-face {
@@ -40,6 +40,9 @@
   --mid:   #a8a8ad;
   --dim:   #6e6e75;
   --grid:  #191920;
+  /* The exact two colours the shell itself allows, and nowhere but here either. */
+  --ok:     #57d16b;
+  --danger: #ef5350;
 
   --display: "Bricolage", ui-sans-serif, system-ui, sans-serif;
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -51,7 +54,7 @@
 
 * { box-sizing: border-box; }
 
-html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: 88px; }
 
 body {
   margin: 0;
@@ -72,6 +75,8 @@ a:hover { text-decoration-color: var(--lit); }
   outline-offset: 3px;
   border-radius: 3px;
 }
+
+::selection { background: var(--lit); color: #0a0a0a; }
 
 img { max-width: 100%; height: auto; display: block; }
 
@@ -123,18 +128,46 @@ img { max-width: 100%; height: auto; display: block; }
 .pill a.ghost:hover { background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.2); }
 
 /* -------------------------------------------------------------------- hero */
-.hero { padding-block: 128px clamp(48px, 7vw, 84px); text-align: center; }
+/* Two columns once there's room: the pitch on the left, the actual running
+   surface on the right — the same split as a product page that puts its
+   screenshot beside the copy, except this "screenshot" is live. */
+.hero {
+  padding-block: clamp(120px, 16vw, 168px) clamp(56px, 8vw, 96px);
+  display: grid;
+  gap: clamp(40px, 6vw, 72px);
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+}
+.hero-copy { text-align: center; }
+.hero-stage { display: flex; flex-direction: column; align-items: center; gap: 14px; }
 
-/* A replica of the island's own chrome, holding the real thing's clock. */
+@media (min-width: 980px) {
+  .hero { grid-template-columns: minmax(0, 1fr) minmax(0, 460px); text-align: left; }
+  .hero-copy { text-align: left; }
+  h1, .lede { margin-inline: 0; }
+  .actions { justify-content: flex-start; }
+}
+
+/* A replica of the island's own chrome, holding the real thing's clock. It
+   grows under the pointer on 180ms in and collapses on the real 90ms out —
+   the two numbers named in the copy below, not stand-ins for them. */
 .slab {
   position: relative;
   margin: 0 auto;
-  max-width: 700px;
+  width: 100%;
+  max-width: 460px;
   border: 1px solid var(--edge);
   border-radius: 30px;
-  padding: clamp(26px, 5vw, 48px) clamp(18px, 4vw, 40px);
+  padding: clamp(26px, 5vw, 40px) clamp(18px, 4vw, 32px);
   background: linear-gradient(180deg, #191919 0%, #0d0d0d 50%, #121212 100%);
   overflow: hidden;
+  transition: transform 180ms cubic-bezier(.22,.75,.32,1), border-color 180ms ease;
+  cursor: default;
+}
+.slab:hover, .slab:focus-within {
+  transform: scale(1.045);
+  border-color: rgba(255,255,255,.22);
+  transition-duration: 90ms;
 }
 /* The island's top hairline highlight. */
 .slab::before {
@@ -154,8 +187,18 @@ img { max-width: 100%; height: auto; display: block; }
   color: var(--dim);
 }
 
+.hover-hint {
+  margin: 0; font-family: var(--mono); font-size: 11px;
+  letter-spacing: .06em; color: var(--dim);
+}
+.hover-hint kbd {
+  font-family: inherit; font-size: 10px; color: var(--lit);
+  background: rgba(255,255,255,.07); border: 1px solid var(--edge);
+  border-radius: 4px; padding: 1px 5px;
+}
+
 h1 {
-  margin: clamp(36px, 5vw, 56px) auto 0;
+  margin: 0 auto;
   max-width: 26ch;
   font-family: var(--display);
   font-size: clamp(34px, 6.2vw, 62px);
@@ -208,17 +251,76 @@ section + section { border-top: 1px solid var(--edge-soft); }
 .prose { max-width: var(--measure); font-size: clamp(15px, 1.8vw, 17px); }
 .prose p + p { margin-top: 1.1em; }
 .prose strong { color: var(--lit); font-weight: 600; }
+.swatch {
+  display: inline-block; width: 9px; height: 9px; margin: 0 1px -1px 0;
+  border-radius: 50%;
+}
+.swatch.ok { background: var(--ok); }
+.swatch.danger { background: var(--danger); }
 
 /* ------------------------------------------------------------- screenshots */
-.shots { display: grid; gap: clamp(28px, 4vw, 44px); }
-.shot { display: grid; grid-template-columns: 210px 1fr; gap: clamp(18px, 3vw, 34px); align-items: start; }
-.shot .rail { padding-top: 4px; }
-.shot .name {
-  font-family: var(--mono); font-size: 11px; letter-spacing: .15em;
-  text-transform: uppercase; color: var(--lit);
+/* A rail of states next to a fixed viewer, because that's the actual thing:
+   one surface that becomes a different state, not eleven different widgets.
+   Clicking a name is the closest a static page gets to what hovering the
+   pill does on your own screen. */
+.state-viewer {
+  display: grid;
+  gap: clamp(18px, 3vw, 30px);
+  grid-template-columns: minmax(0, 1fr);
 }
-.shot .note { margin-top: 8px; font-size: 13px; line-height: 1.55; color: var(--dim); }
-.shot figure {
+@media (min-width: 860px) {
+  .state-viewer { grid-template-columns: 208px minmax(0, 1fr); align-items: start; }
+}
+
+.state-index {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0; padding: 0; list-style: none;
+}
+@media (min-width: 860px) {
+  .state-index {
+    flex-direction: column;
+    position: sticky; top: 76px;
+    border-left: 1px solid var(--edge-soft);
+  }
+}
+.state-tab {
+  all: unset;
+  cursor: pointer;
+  padding: 9px 14px;
+  border-radius: 999px;
+  font-family: var(--mono); font-size: 12px; letter-spacing: .03em;
+  color: var(--dim);
+  transition: background .15s ease, color .15s ease;
+}
+@media (min-width: 860px) {
+  .state-tab {
+    border-radius: 0;
+    padding: 9px 8px 9px 16px;
+    margin-left: -1px;
+    border-left: 1px solid transparent;
+  }
+}
+.state-tab:hover { color: var(--mid); }
+.state-tab:focus-visible { outline: 2px solid var(--lit); outline-offset: 2px; }
+.state-tab.is-active {
+  color: var(--lit);
+  background: rgba(255,255,255,.07);
+}
+@media (min-width: 860px) {
+  .state-tab.is-active { background: none; border-left-color: var(--lit); }
+}
+
+.state-frame { position: relative; }
+.state-shot {
+  display: none;
+  margin: 0;
+  grid-template-columns: 1fr;
+}
+.state-shot.is-active { display: grid; gap: clamp(14px, 2.5vw, 22px); }
+.state-shot figure {
   margin: 0;
   border: 1px solid var(--edge-soft);
   border-radius: 18px;
@@ -226,7 +328,8 @@ section + section { border-top: 1px solid var(--edge-soft); }
   padding: 14px;
   overflow: hidden;
 }
-.shot img { border-radius: 8px; width: auto; max-width: 100%; margin-inline: auto; }
+.state-shot img { border-radius: 8px; width: auto; max-width: 100%; margin-inline: auto; }
+.state-shot figcaption { font-size: 13.5px; line-height: 1.6; color: var(--dim); max-width: var(--measure); }
 
 /* --------------------------------------------------------------- changelog */
 .release-head { max-width: 760px; margin-bottom: clamp(28px, 4vw, 46px); }
@@ -361,7 +464,7 @@ footer .sp { flex: 1; }
 
 /* ------------------------------------------------------------- responsive */
 @media (max-width: 720px) {
-  .shot, .row { grid-template-columns: 1fr; gap: 12px; }
+  .row { grid-template-columns: 1fr; gap: 12px; }
   .release-grid { grid-template-columns: 1fr; }
   .release-card.wide { grid-column: auto; }
   .hero { padding-top: 104px; }
@@ -384,22 +487,27 @@ footer .sp { flex: 1; }
 </nav>
 
 <header class="hero wrap">
-  <div class="slab">
-    <span class="live">your local time</span>
-    <canvas id="clock" role="img" aria-label="Live pixel-art clock"></canvas>
-    <canvas id="date" aria-hidden="true"></canvas>
+  <div class="hero-copy">
+    <h1>A notch that earns its place</h1>
+    <p class="lede">
+      Dynamic Island is a monochrome overlay for Hyprland, built on Quickshell.
+      Collapsed it is a compact pill. Hover it—or choose click-to-open—and it
+      morphs into media controls, a live spectrum analyser and three live meters.
+    </p>
+
+    <div class="actions">
+      <a class="btn solid" href="https://github.com/lunanoir21/quickshell-dynamic-island">Get the source</a>
+      <a class="btn hollow" href="#install">Install</a>
+    </div>
   </div>
 
-  <h1>A notch that earns its place</h1>
-  <p class="lede">
-    Dynamic Island is a monochrome overlay for Hyprland, built on Quickshell.
-    Collapsed it is a compact pill. Hover it—or choose click-to-open—and it
-    morphs into media controls, a live spectrum analyser and three live meters.
-  </p>
-
-  <div class="actions">
-    <a class="btn solid" href="https://github.com/lunanoir21/quickshell-dynamic-island">Get the source</a>
-    <a class="btn hollow" href="#install">Install</a>
+  <div class="hero-stage">
+    <div class="slab" tabindex="0">
+      <span class="live">your local time</span>
+      <canvas id="clock" role="img" aria-label="Live pixel-art clock"></canvas>
+      <canvas id="date" aria-hidden="true"></canvas>
+    </div>
+    <p class="hover-hint">that's not a screenshot — hover it, like you would the real one</p>
   </div>
 </header>
 
@@ -436,9 +544,11 @@ footer .sp { flex: 1; }
     <p>
       Notifications, incoming calls, and microphone or camera activity take the
       surface over on their own and hand it back when they are done. Everything
-      is drawn in greyscale, with the sole exception of the green and red on a
+      is drawn in greyscale, with the sole exception of the
+      <span class="swatch ok" aria-hidden="true"></span>green and
+      <span class="swatch danger" aria-hidden="true"></span>red on a
       call's answer and decline buttons — the two controls where guessing wrong
-      actually costs you something.
+      actually costs you something. It's the only colour on this entire page too.
     </p>
   </div>
 </section>
@@ -460,103 +570,79 @@ footer .sp { flex: 1; }
   <div class="release-grid" id="latest-shots"></div>
 </section>
 
-<section class="wrap">
+<section class="wrap" id="states">
   <p class="eyebrow">Every state</p>
   <div class="prose" style="margin-bottom:clamp(28px,4vw,44px)">
-    <p>Captured live. The interface ships in English and Turkish and switches
-    between them at runtime — every string lives in <code>Strings.qml</code>,
-    so a third language is one branch per line away.</p>
+    <p>One surface, eleven shapes. Captured live, and shown here the way it
+    actually behaves — a rail of states, not a scroll of unrelated pictures.
+    The interface ships in English and Turkish and switches between them at
+    runtime — every string lives in <code>Strings.qml</code>, so a third
+    language is one branch per line away.</p>
   </div>
-  <div class="shots">
 
-    <div class="shot">
-      <div class="rail">
-        <p class="name">Collapsed</p>
-        <p class="note">Cover, title, pixel clock, battery and the mic/camera privacy dots. The spectrum ribbon rides the top edge while something plays.</p>
-      </div>
-      <figure><img src="screenshots/pill.png" alt="The collapsed pill showing cover art, track title, pixel clock, battery and device indicators" loading="lazy" width="531" height="75"></figure>
+  <noscript><style>.state-shot { display: grid !important; margin-bottom: 32px; } .state-index { display: none; }</style></noscript>
+
+  <div class="state-viewer">
+    <div class="state-index" role="tablist" aria-label="Island states">
+      <button class="state-tab is-active" type="button" data-state="0" role="tab" aria-selected="true" aria-controls="state-0">Collapsed</button>
+      <button class="state-tab" type="button" data-state="1" role="tab" aria-selected="false" aria-controls="state-1">Media</button>
+      <button class="state-tab" type="button" data-state="2" role="tab" aria-selected="false" aria-controls="state-2">Lyrics</button>
+      <button class="state-tab" type="button" data-state="3" role="tab" aria-selected="false" aria-controls="state-3">Clock</button>
+      <button class="state-tab" type="button" data-state="4" role="tab" aria-selected="false" aria-controls="state-4">Call</button>
+      <button class="state-tab" type="button" data-state="5" role="tab" aria-selected="false" aria-controls="state-5">Notification</button>
+      <button class="state-tab" type="button" data-state="6" role="tab" aria-selected="false" aria-controls="state-6">Reply</button>
+      <button class="state-tab" type="button" data-state="7" role="tab" aria-selected="false" aria-controls="state-7">Privacy</button>
+      <button class="state-tab" type="button" data-state="8" role="tab" aria-selected="false" aria-controls="state-8">Time</button>
+      <button class="state-tab" type="button" data-state="9" role="tab" aria-selected="false" aria-controls="state-9">Time&rsquo;s up</button>
+      <button class="state-tab" type="button" data-state="10" role="tab" aria-selected="false" aria-controls="state-10">Still counting</button>
     </div>
 
-    <div class="shot">
-      <div class="rail">
-        <p class="name">Media</p>
-        <p class="note">Cover, scrubbing, transport and a spectrum mirrored around the centre so the low bands meet in the middle. Fed by <code>cava</code>.</p>
-      </div>
-      <figure><img src="screenshots/media.png" alt="The expanded media panel with cover art, seek bar, transport controls, mirrored spectrum and three vertical meters" loading="lazy" width="727" height="321"></figure>
+    <div class="state-frame">
+      <figure class="state-shot is-active" id="state-0" role="tabpanel">
+        <img src="screenshots/pill.png" alt="The collapsed pill showing cover art, track title, pixel clock, battery and device indicators" loading="lazy" width="531" height="75">
+        <figcaption>Cover, title, pixel clock, battery and the mic/camera privacy dots. The spectrum ribbon rides the top edge while something plays.</figcaption>
+      </figure>
+      <figure class="state-shot" id="state-1" role="tabpanel" hidden>
+        <img src="screenshots/media.png" alt="The expanded media panel with cover art, seek bar, transport controls, mirrored spectrum and three vertical meters" loading="lazy" width="727" height="321">
+        <figcaption>Cover, scrubbing, transport and a spectrum mirrored around the centre so the low bands meet in the middle. Fed by <code>cava</code>.</figcaption>
+      </figure>
+      <figure class="state-shot" id="state-2" role="tabpanel" hidden>
+        <img src="screenshots/lyrics.png" alt="The expanded media panel showing the current lyric line highlighted between the previous and next lines" loading="lazy" width="727" height="321">
+        <figcaption>Time-synced lines in place of the spectrum, the sung one lit and the neighbours dimmed. The block rises by a line on each change, so it reads as a list scrolling rather than three labels blinking.</figcaption>
+      </figure>
+      <figure class="state-shot" id="state-3" role="tabpanel" hidden>
+        <img src="screenshots/clock.png" alt="The expanded panel showing the large pixel-art clock and date" loading="lazy" width="727" height="321">
+        <figcaption>A 5×7 bitmap font drawn to a canvas over a dormant LED grid. Digits roll vertically, one pixel row at a time — the same code running in the hero above.</figcaption>
+      </figure>
+      <figure class="state-shot" id="state-4" role="tabpanel" hidden>
+        <img src="screenshots/call.png" alt="An incoming call screen with a large avatar, radar rings and green accept and red decline buttons" loading="lazy" width="367" height="281">
+        <figcaption>An incoming call takes the whole surface, radar rings and all, then folds down to a bar with a running timer once the audio actually connects. Answer and decline invoke the app's own D-Bus actions.</figcaption>
+      </figure>
+      <figure class="state-shot" id="state-5" role="tabpanel" hidden>
+        <img src="screenshots/notification.png" alt="A notification card with an app icon, title, body and a dismissal countdown bar" loading="lazy" width="507" height="139">
+        <figcaption>Pushed in over IPC. Uses the sender's own icon, or falls back to a freedesktop icon-name lookup.</figcaption>
+      </figure>
+      <figure class="state-shot" id="state-6" role="tabpanel" hidden>
+        <img src="screenshots/reply.png" alt="A notification card with a reply text field and a send button beneath the message" loading="lazy" width="507" height="181">
+        <figcaption>Senders that attach an inline-reply action get a field and a send button. Typing pauses the dismissal countdown, so a half-written reply is never swallowed mid-sentence.</figcaption>
+      </figure>
+      <figure class="state-shot" id="state-7" role="tabpanel" hidden>
+        <img src="screenshots/device.png" alt="A card announcing that the microphone became active, with a live level meter" loading="lazy" width="427" height="113">
+        <figcaption>Raised the moment the microphone or camera starts or stops. Polled at a steady rate even while collapsed.</figcaption>
+      </figure>
+      <figure class="state-shot" id="state-8" role="tabpanel" hidden>
+        <img src="screenshots/time-tools.png" alt="The time page showing a running timer at three minutes nine seconds, a progress strip of square cells, duration presets, and a rail of four modes below" loading="lazy" width="780" height="324">
+        <figcaption>A timer, a stopwatch with laps, a focus cycle and an alarm as one instrument that retunes, rather than four widgets splitting the width. The readout is drawn in the same 5×7 matrix as the clock, and progress is a strip of those same square cells. The rail below keeps the three modes that are not on stage reporting their live values.</figcaption>
+      </figure>
+      <figure class="state-shot" id="state-9" role="tabpanel" hidden>
+        <img src="screenshots/time-alert.png" alt="A completion card reading Time's up, five minute timer finished, with a dismiss button" loading="lazy" width="470" height="128">
+        <figcaption>Finishing is an event: the island changes shape into a card that pulses until it is answered. Esc, Space, Return, a click anywhere on it, or its button — but not the pointer that happened to be resting where it appeared, and not the island collapsing. A chime plays alongside it, and under a fullscreen window, where the island cannot draw at all, it falls back to the notification daemon and still sounds.</figcaption>
+      </figure>
+      <figure class="state-shot" id="state-10" role="tabpanel" hidden>
+        <img src="screenshots/time-capsule.png" alt="The collapsed pill with a green capsule showing a running timer beside the clock and battery" loading="lazy" width="566" height="54">
+        <figcaption>A running tool keeps a capsule on the collapsed pill — mode icon, live value in the pixel matrix, a drain line along its edge and a sweep of light travelling across it. Inside the last minute the capsule turns amber and the sweep more than doubles its pace, so the pill escalates on its own without ever growing or moving.</figcaption>
+      </figure>
     </div>
-
-    <div class="shot">
-      <div class="rail">
-        <p class="name">Lyrics</p>
-        <p class="note">Time-synced lines in place of the spectrum, the sung one lit and the neighbours dimmed. The block rises by a line on each change, so it reads as a list scrolling rather than three labels blinking.</p>
-      </div>
-      <figure><img src="screenshots/lyrics.png" alt="The expanded media panel showing the current lyric line highlighted between the previous and next lines" loading="lazy" width="727" height="321"></figure>
-    </div>
-
-    <div class="shot">
-      <div class="rail">
-        <p class="name">Clock</p>
-        <p class="note">A 5×7 bitmap font drawn to a canvas over a dormant LED grid. Digits roll vertically, one pixel row at a time.</p>
-      </div>
-      <figure><img src="screenshots/clock.png" alt="The expanded panel showing the large pixel-art clock and date" loading="lazy" width="727" height="321"></figure>
-    </div>
-
-    <div class="shot">
-      <div class="rail">
-        <p class="name">Call</p>
-        <p class="note">An incoming call takes the whole surface, radar rings and all, then folds down to a bar with a running timer once the audio actually connects. Answer and decline invoke the app's own D-Bus actions.</p>
-      </div>
-      <figure><img src="screenshots/call.png" alt="An incoming call screen with a large avatar, radar rings and green accept and red decline buttons" loading="lazy" width="367" height="281"></figure>
-    </div>
-
-    <div class="shot">
-      <div class="rail">
-        <p class="name">Notification</p>
-        <p class="note">Pushed in over IPC. Uses the sender's own icon, or falls back to a freedesktop icon-name lookup.</p>
-      </div>
-      <figure><img src="screenshots/notification.png" alt="A notification card with an app icon, title, body and a dismissal countdown bar" loading="lazy" width="507" height="139"></figure>
-    </div>
-
-    <div class="shot">
-      <div class="rail">
-        <p class="name">Reply</p>
-        <p class="note">Senders that attach an inline-reply action get a field and a send button. Typing pauses the dismissal countdown, so a half-written reply is never swallowed mid-sentence.</p>
-      </div>
-      <figure><img src="screenshots/reply.png" alt="A notification card with a reply text field and a send button beneath the message" loading="lazy" width="507" height="181"></figure>
-    </div>
-
-    <div class="shot">
-      <div class="rail">
-        <p class="name">Privacy</p>
-        <p class="note">Raised the moment the microphone or camera starts or stops. Polled at a steady rate even while collapsed.</p>
-      </div>
-      <figure><img src="screenshots/device.png" alt="A card announcing that the microphone became active, with a live level meter" loading="lazy" width="427" height="113"></figure>
-    </div>
-
-    <div class="shot">
-      <div class="rail">
-        <p class="name">Time</p>
-        <p class="note">A timer, a stopwatch with laps, a focus cycle and an alarm as one instrument that retunes, rather than four widgets splitting the width. The readout is drawn in the same 5×7 matrix as the clock, and progress is a strip of those same square cells. The rail below keeps the three modes that are not on stage reporting their live values.</p>
-      </div>
-      <figure><img src="screenshots/time-tools.png" alt="The time page showing a running timer at three minutes nine seconds, a progress strip of square cells, duration presets, and a rail of four modes below" loading="lazy" width="780" height="324"></figure>
-    </div>
-
-    <div class="shot">
-      <div class="rail">
-        <p class="name">Time&rsquo;s up</p>
-        <p class="note">Finishing is an event: the island changes shape into a card that pulses until it is answered. Esc, Space, Return, a click anywhere on it, or its button — but not the pointer that happened to be resting where it appeared, and not the island collapsing. A chime plays alongside it, and under a fullscreen window, where the island cannot draw at all, it falls back to the notification daemon and still sounds.</p>
-      </div>
-      <figure><img src="screenshots/time-alert.png" alt="A completion card reading Time's up, five minute timer finished, with a dismiss button" loading="lazy" width="470" height="128"></figure>
-    </div>
-
-    <div class="shot">
-      <div class="rail">
-        <p class="name">Still counting</p>
-        <p class="note">A running tool keeps a capsule on the collapsed pill — mode icon, live value in the pixel matrix, a drain line along its edge and a sweep of light travelling across it. Inside the last minute the capsule turns amber and the sweep more than doubles its pace, so the pill escalates on its own without ever growing or moving.</p>
-      </div>
-      <figure><img src="screenshots/time-capsule.png" alt="The collapsed pill with a green capsule showing a running timer beside the clock and battery" loading="lazy" width="566" height="54"></figure>
-    </div>
-
   </div>
 </section>
 
@@ -573,7 +659,7 @@ footer .sp { flex: 1; }
     </div>
     <div class="row">
       <dt>Settings and themes</dt>
-      <dd>Black, Umbra, Gray and White palettes with contrast-safe text, plus live controls for clock style, language, hover behaviour, mini-player mode and animation visibility.</dd>
+      <dd>Seven themes — Black, Umbra, Gray, White, Gold, Amber and Red — with contrast-safe text, plus live controls for clock style, language, hover behaviour, mini-player mode and animation visibility. The settings window wears whichever you pick, and crossfades between palettes rather than cutting.</dd>
     </div>
     <div class="row">
       <dt>Player-only pill</dt>
@@ -616,8 +702,16 @@ footer .sp { flex: 1; }
       <dd>Volume, brightness and microphone gain as draggable segment bars, over <code>wpctl</code> and <code>brightnessctl</code>.</dd>
     </div>
     <div class="row">
-      <dt>Weather and battery</dt>
-      <dd>Open-Meteo with IP geolocation, cached for fifteen minutes. Battery level, charge state and time-to-empty from sysfs and UPower.</dd>
+      <dt>Per-app volume</dt>
+      <dd>One fader per app that makes noise, grouped by app rather than by stream — a browser with four tabs is one row.</dd>
+    </div>
+    <div class="row">
+      <dt>Up next</dt>
+      <dd>The queue the player reports, as a panel you can read. Marked experimental because most players never report one.</dd>
+    </div>
+    <div class="row">
+      <dt>Battery</dt>
+      <dd>Level, charge state and time-to-empty from sysfs and UPower, tucked into the collapsed pill.</dd>
     </div>
     <div class="row">
       <dt>Stays out of the way</dt>
@@ -648,7 +742,7 @@ quickshell -p ./Main.qml</code>
     <p>
       Needs Quickshell 0.3+, a wlroots compositor with layer-shell, <code>jq</code>
       and a Nerd Font. <code>playerctl</code>, <code>wpctl</code>,
-      <code>brightnessctl</code>, <code>cava</code>, <code>curl</code> (weather,
+      <code>brightnessctl</code>, <code>cava</code>, <code>curl</code> (lyrics
       lyrics and browser thumbnails), <code>pactl</code> (call detection) and <code>upower</code> are all
       optional — anything missing leaves its section empty rather than failing.
     </p>
@@ -935,6 +1029,49 @@ addEventListener("resize", () => {
   clearTimeout(resizeJob);
   resizeJob = setTimeout(render, 120);
 });
+
+/* ------------------------------------------------------------ state rail */
+(() => {
+  const tabs = document.querySelectorAll(".state-tab");
+  const panels = document.querySelectorAll(".state-shot");
+  if (!tabs.length) return;
+
+  function select(index) {
+    tabs.forEach((tab) => {
+      const active = tab.dataset.state === String(index);
+      tab.classList.toggle("is-active", active);
+      tab.setAttribute("aria-selected", String(active));
+    });
+    panels.forEach((panel, i) => {
+      const active = i === index;
+      panel.classList.toggle("is-active", active);
+      panel.hidden = !active;
+    });
+  }
+
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => select(Number(tab.dataset.state)));
+  });
+
+  /* Arrow keys move through the rail, the way tabbing through real widget
+     segments does — Left/Right, wrapping at the ends, Home/End for the rails. */
+  const parent = tabs[0]?.parentElement;
+  if (parent) {
+    parent.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      const focusIndex = tabs.findIndex((tab) => tab === document.activeElement);
+      if (focusIndex === -1) return;
+      event.preventDefault();
+      let next = focusIndex;
+      if (event.key === "ArrowLeft") next = (focusIndex - 1 + tabs.length) % tabs.length;
+      else if (event.key === "ArrowRight") next = (focusIndex + 1) % tabs.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = tabs.length - 1;
+      tabs[next].focus();
+      select(next);
+    });
+  }
+})();
 
 /* ------------------------------------------------------------------ tour */
 /* The video is only committed when there is a current one to show, so the
