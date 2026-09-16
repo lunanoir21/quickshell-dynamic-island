@@ -1062,6 +1062,15 @@ PanelWindow {
         window.countdownSeconds = window.countdownDuration
     }
 
+    // The custom duration steppers step whole minutes on the *current* length,
+    // clamped to the same one-minute floor the backend enforces and to a day
+    // so an accidental hold never runs the hero readout or pill capsule into
+    // absurdity. Resetting (not just renumbering) keeps it identical to the
+    // presets: tapping a step sets the timer to a new length at zero elapsed.
+    function adjustCountdown(step) {
+        window.resetCountdown(Math.max(1, Math.min(1440, window.countdownDuration / 60 + step)))
+    }
+
     function resetPomodoro() {
         window.pomodoroRunning = false
         window.pomodoroSeconds = window.pomodoroWorkPhase ? 1500 : 300
@@ -4083,6 +4092,33 @@ PanelWindow {
                                             onTriggered: window.resetCountdown(modelData)
                                         }
                                     }
+
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 1
+                                        height: 18
+                                        color: window.themeLineStrong
+                                    }
+
+                                    // -- custom duration: the same H/M stepping
+                                    // pair the alarm uses, so any minute count
+                                    // is settable next to the fixed presets.
+                                    Repeater {
+                                        model: [
+                                            { glyph: "󰁝", step: 60,  tag: "H" },
+                                            { glyph: "󰁅", step: -60, tag: "H" },
+                                            { glyph: "󰁝", step: 1,   tag: "M" },
+                                            { glyph: "󰁅", step: -1,  tag: "M" }
+                                        ]
+
+                                        TimeKey {
+                                            required property var modelData
+                                            width: 34
+                                            label: modelData.tag
+                                            glyph: modelData.glyph
+                                            onTriggered: window.adjustCountdown(modelData.step)
+                                        }
+                                    }
                                 }
 
                                 // -- stopwatch: the last four laps, newest first
@@ -4188,8 +4224,8 @@ PanelWindow {
                                         model: [
                                             { glyph: "󰁝", step: 60,  tag: "H" },
                                             { glyph: "󰁅", step: -60, tag: "H" },
-                                            { glyph: "󰁝", step: 5,   tag: "M" },
-                                            { glyph: "󰁅", step: -5,  tag: "M" }
+                                            { glyph: "󰁝", step: 1,   tag: "M" },
+                                            { glyph: "󰁅", step: -1,  tag: "M" }
                                         ]
 
                                         TimeKey {
