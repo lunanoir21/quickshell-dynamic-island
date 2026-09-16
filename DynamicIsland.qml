@@ -701,16 +701,26 @@ PanelWindow {
     // The chip row sits in the 142px-wide gap under the cover, which fits three.
     // The selected player is always kept among them, so the lit chip can never
     // be the one that got folded away; the remainder collapses into a +N chip.
-    readonly property var visiblePlayers: {
+    // Not a plain binding: `mediaPlayers` gets a new array identity on
+    // every poll (it comes from a freshly JSON.parse'd islandState), which
+    // would otherwise rebuild this — and every Repeater reading it — every
+    // 800-1200ms even when no player actually changed. Recomputed only when
+    // the player set's *content* (name + selection) actually differs.
+    property var visiblePlayers: []
+    property string _visiblePlayersSig: ""
+    onMediaPlayersChanged: {
         let all = window.mediaPlayers
-        if (all.length <= 3) return all
+        let sig = all.map(p => p.name + (window.isPlayerSelected(p) ? "*" : "")).join("|")
+        if (sig === window._visiblePlayersSig) return
+        window._visiblePlayersSig = sig
+        if (all.length <= 3) { window.visiblePlayers = all; return }
         let picked = []
         let rest = []
         for (let i = 0; i < all.length; i++) {
             if (window.isPlayerSelected(all[i])) picked.push(all[i])
             else rest.push(all[i])
         }
-        return picked.concat(rest).slice(0, 3)
+        window.visiblePlayers = picked.concat(rest).slice(0, 3)
     }
 
     // playerctl reports instance names like "chromium.instance1"; the desktop
@@ -1862,6 +1872,12 @@ PanelWindow {
                 if (!raw) return
                 try {
                     let next = JSON.parse(raw)
+                    // A drag anywhere in the island (the mixer rows included — see
+                    // AppVolumeRow's onDraggingChanged below) holds `interacting` true.
+                    // `apps` is the one array a mid-drag poll must not replace: swapping it
+                    // destroys and recreates the row under the pointer, which drops the
+                    // drag. Every other field still refreshes normally.
+                    if (window.interacting) next.apps = window.islandState.apps
                     if (window.startupRead) {
                         if (!window.expanded && window.previousVolume >= 0 && next.volume !== window.previousVolume) window.showHud(next.muted ? "󰝟" : "󰕾", next.volume)
                         if (!window.expanded && window.previousBrightness >= 0 && next.brightness !== window.previousBrightness) window.showHud("󰃠", next.brightness)
@@ -3410,39 +3426,54 @@ PanelWindow {
                 // strips matched the home meters more closely but ran out of
                 // room past four apps, and a browser plus a music player plus a
                 // chat client is an ordinary afternoon.
-                Column {
+                Flickable {
+                    id: mixerFlick
                     anchors {
                         top: mixerTitle.bottom
                         left: parent.left
                         right: parent.right
+                        bottom: parent.bottom
                         topMargin: 10
                         leftMargin: 22
                         rightMargin: 22
+                        bottomMargin: 12
                     }
-                    spacing: 6
+                    clip: true
+                    flickableDirection: Flickable.VerticalFlick
+                    contentWidth: width
+                    contentHeight: mixerColumn.height
+                    ScrollBar.vertical: ScrollBar {
+                        policy: mixerFlick.contentHeight > mixerFlick.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                    }
 
-                    Repeater {
-                        model: window.appStreams
+                    Column {
+                        id: mixerColumn
+                        width: parent.width
+                        spacing: 6
 
-                        AppVolumeRow {
-                            required property var modelData
-                            width: parent.width
-                            appName: modelData.name
-                            iconSource: window.resolveStreamIcon(modelData)
-                            value: modelData.volume
-                            muted: modelData.muted
-                            active: modelData.active
-                            phase: window.visualPhase
-                            fontFamily: window.uiFont
-                            iconFont: window.iconFont
-                            textColor: window.idleView ? window.themeText : window.mediaPanelText
-                            filledColor: window.idleView ? window.themeOn : window.mediaPanelOn
-                            emptyColor: window.idleView ? window.themeTrack : window.mediaPanelTrack
-                            disabledColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
-                            alertColor: window.themeStatusAlert
-                            onDraggingChanged: window.setInteracting(dragging)
-                            onMoved: v => window.setAppVolume(modelData, v)
-                            onMuteToggled: window.toggleAppMute(modelData)
+                        Repeater {
+                            model: window.appStreams
+
+                            AppVolumeRow {
+                                required property var modelData
+                                width: parent.width
+                                appName: modelData.name
+                                iconSource: window.resolveStreamIcon(modelData)
+                                value: modelData.volume
+                                muted: modelData.muted
+                                active: modelData.active
+                                phase: window.visualPhase
+                                fontFamily: window.uiFont
+                                iconFont: window.iconFont
+                                textColor: window.idleView ? window.themeText : window.mediaPanelText
+                                filledColor: window.idleView ? window.themeOn : window.mediaPanelOn
+                                emptyColor: window.idleView ? window.themeTrack : window.mediaPanelTrack
+                                disabledColor: window.idleView ? window.themeMuted : window.mediaPanelMuted
+                                alertColor: window.themeStatusAlert
+                                onDraggingChanged: window.setInteracting(dragging)
+                                onMoved: v => window.setAppVolume(modelData, v)
+                                onMuteToggled: window.toggleAppMute(modelData)
+                            }
                         }
                     }
                 }
@@ -3529,60 +3560,74 @@ PanelWindow {
 
                 // C1 — numbered list. The only variant that needs nothing but
                 // title and artist, which is all a TrackList reliably carries.
-                Column {
+                Flickable {
+                    id: queueListFlick
                     visible: window.queueStyle === "list"
                     anchors {
                         top: queueHeader.bottom
                         left: parent.left
                         right: parent.right
+                        bottom: parent.bottom
                         topMargin: 10
                         leftMargin: 20
                         rightMargin: 20
                     }
-                    spacing: 4
+                    clip: true
+                    flickableDirection: Flickable.VerticalFlick
+                    contentWidth: width
+                    contentHeight: queueListColumn.height
+                    ScrollBar.vertical: ScrollBar {
+                        policy: queueListFlick.contentHeight > queueListFlick.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                    }
 
-                    Repeater {
-                        model: window.queueStyle === "list" ? (window.mediaQueue.tracks || []) : []
+                    Column {
+                        id: queueListColumn
+                        width: parent.width
+                        spacing: 4
 
-                        Row {
-                            required property var modelData
-                            required property int index
-                            width: parent.width
-                            spacing: 12
+                        Repeater {
+                            model: window.queueStyle === "list" ? (window.mediaQueue.tracks || []) : []
 
-                            // Numbered because in a queue the position is the
-                            // content: it is what tells the user how far off a
-                            // track is. Elsewhere in this island numbering would
-                            // just be decoration.
-                            Text {
-                                width: 16
-                                horizontalAlignment: Text.AlignRight
-                                text: index + 1
-                                color: window.themeMuted
-                                font.family: window.uiFont
-                                font.pixelSize: 10
-                            }
+                            Row {
+                                required property var modelData
+                                required property int index
+                                width: parent.width
+                                spacing: 12
 
-                            Column {
-                                width: parent.width - 28
-                                spacing: 1
-
+                                // Numbered because in a queue the position is the
+                                // content: it is what tells the user how far off a
+                                // track is. Elsewhere in this island numbering would
+                                // just be decoration.
                                 Text {
-                                    width: parent.width
-                                    text: modelData.title || "—"
-                                    elide: Text.ElideRight
-                                    color: window.idleView ? window.themeText : window.mediaPanelText
-                                    font.family: window.uiFont
-                                    font.pixelSize: 11
-                                }
-                                Text {
-                                    width: parent.width
-                                    visible: String(modelData.artist || "") !== ""
-                                    text: modelData.artist
-                                    elide: Text.ElideRight
+                                    width: 16
+                                    horizontalAlignment: Text.AlignRight
+                                    text: index + 1
                                     color: window.themeMuted
                                     font.family: window.uiFont
-                                    font.pixelSize: 9
+                                    font.pixelSize: 10
+                                }
+
+                                Column {
+                                    width: parent.width - 28
+                                    spacing: 1
+
+                                    Text {
+                                        width: parent.width
+                                        text: modelData.title || "—"
+                                        elide: Text.ElideRight
+                                        color: window.idleView ? window.themeText : window.mediaPanelText
+                                        font.family: window.uiFont
+                                        font.pixelSize: 11
+                                    }
+                                    Text {
+                                        width: parent.width
+                                        visible: String(modelData.artist || "") !== ""
+                                        text: modelData.artist
+                                        elide: Text.ElideRight
+                                        color: window.themeMuted
+                                        font.family: window.uiFont
+                                        font.pixelSize: 9
+                                    }
                                 }
                             }
                         }
@@ -3672,81 +3717,95 @@ PanelWindow {
                 // C3 — timeline. Answers "how long until my track", which needs
                 // per-track lengths; when the player omits them the offset
                 // column falls back to a plain position marker.
-                Column {
+                Flickable {
+                    id: queueTimelineFlick
                     visible: window.queueStyle === "timeline"
                     anchors {
                         top: queueHeader.bottom
                         left: parent.left
                         right: parent.right
+                        bottom: parent.bottom
                         topMargin: 10
                         leftMargin: 20
                         rightMargin: 20
                     }
-                    spacing: 0
+                    clip: true
+                    flickableDirection: Flickable.VerticalFlick
+                    contentWidth: width
+                    contentHeight: queueTimelineColumn.height
+                    ScrollBar.vertical: ScrollBar {
+                        policy: queueTimelineFlick.contentHeight > queueTimelineFlick.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                    }
 
-                    Repeater {
-                        model: window.queueStyle === "timeline" ? (window.mediaQueue.tracks || []) : []
+                    Column {
+                        id: queueTimelineColumn
+                        width: parent.width
+                        spacing: 0
 
-                        Row {
-                            required property var modelData
-                            required property int index
-                            width: parent.width
-                            spacing: 12
+                        Repeater {
+                            model: window.queueStyle === "timeline" ? (window.mediaQueue.tracks || []) : []
 
-                            Text {
-                                width: 48
-                                horizontalAlignment: Text.AlignRight
-                                text: window.queueOffsetLabel(index)
-                                color: window.themeMuted
-                                font.family: window.uiFont
-                                font.pixelSize: 10
-                            }
+                            Row {
+                                required property var modelData
+                                required property int index
+                                width: parent.width
+                                spacing: 12
 
-                            // The rail is drawn per row rather than as one line
-                            // behind the column so it stops at the last knot
-                            // instead of trailing into empty space.
-                            Item {
-                                width: 7
-                                height: 30
-
-                                Rectangle {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    y: 11
-                                    width: 1
-                                    height: 19
-                                    color: window.themeLine
-                                    visible: index < (window.mediaQueue.tracks.length - 1)
+                                Text {
+                                    width: 48
+                                    horizontalAlignment: Text.AlignRight
+                                    text: window.queueOffsetLabel(index)
+                                    color: window.themeMuted
+                                    font.family: window.uiFont
+                                    font.pixelSize: 10
                                 }
-                                Rectangle {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    y: 5
+
+                                // The rail is drawn per row rather than as one line
+                                // behind the column so it stops at the last knot
+                                // instead of trailing into empty space.
+                                Item {
                                     width: 7
-                                    height: 7
-                                    radius: 3.5
-                                    color: window.themeMuted
-                                }
-                            }
+                                    height: 30
 
-                            Column {
-                                width: parent.width - 79
-                                spacing: 1
-
-                                Text {
-                                    width: parent.width
-                                    text: modelData.title || "—"
-                                    elide: Text.ElideRight
-                                    color: window.idleView ? window.themeText : window.mediaPanelText
-                                    font.family: window.uiFont
-                                    font.pixelSize: 11
+                                    Rectangle {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        y: 11
+                                        width: 1
+                                        height: 19
+                                        color: window.themeLine
+                                        visible: index < (window.mediaQueue.tracks.length - 1)
+                                    }
+                                    Rectangle {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        y: 5
+                                        width: 7
+                                        height: 7
+                                        radius: 3.5
+                                        color: window.themeMuted
+                                    }
                                 }
-                                Text {
-                                    width: parent.width
-                                    visible: String(modelData.artist || "") !== ""
-                                    text: modelData.artist
-                                    elide: Text.ElideRight
-                                    color: window.themeMuted
-                                    font.family: window.uiFont
-                                    font.pixelSize: 9
+
+                                Column {
+                                    width: parent.width - 79
+                                    spacing: 1
+
+                                    Text {
+                                        width: parent.width
+                                        text: modelData.title || "—"
+                                        elide: Text.ElideRight
+                                        color: window.idleView ? window.themeText : window.mediaPanelText
+                                        font.family: window.uiFont
+                                        font.pixelSize: 11
+                                    }
+                                    Text {
+                                        width: parent.width
+                                        visible: String(modelData.artist || "") !== ""
+                                        text: modelData.artist
+                                        elide: Text.ElideRight
+                                        color: window.themeMuted
+                                        font.family: window.uiFont
+                                        font.pixelSize: 9
+                                    }
                                 }
                             }
                         }
