@@ -768,10 +768,27 @@ PanelWindow {
         }
     }
 
+    // Browser MPRIS bridges (YouTube via Firefox confirmed) report `position`
+    // as continuously jittery — real consecutive ~800ms polls have measured
+    // it swinging several seconds either way while a video played forward
+    // smoothly (e.g. 12,14,13,13,18,14,14,13,12,19). A single "seen twice"
+    // debounce still let the bar jump, because noise repeats often enough on
+    // its own. A sliding median-of-3 over the raw stream is the standard fix
+    // for exactly this: it takes three consecutive readings to move the
+    // filtered value at all, and one-off outliers on either side of the true
+    // value are thrown out by construction rather than accidentally trusted.
+    property var _positionSamples: []
+
     function syncPosition(reported) {
         if (window.interacting || positionSettleTimer.running) return
         let value = Number(reported) || 0
-        if (Math.abs(value - window.mediaPosition) > 1.4) window.mediaPosition = value
+        let samples = window._positionSamples.concat([value])
+        if (samples.length > 3) samples = samples.slice(samples.length - 3)
+        window._positionSamples = samples
+        if (samples.length < 3) return
+        let sorted = samples.slice().sort((a, b) => a - b)
+        let median = sorted[1]
+        if (Math.abs(median - window.mediaPosition) > 1.4) window.mediaPosition = median
     }
 
     // ------------------------------------------------------------- app mixer
