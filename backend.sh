@@ -16,6 +16,7 @@ player_state="$base_dir/player"
 players_cache="$base_dir/players.cache"
 lyrics_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/lyrics"
 thumbnail_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/thumbnails"
+duration_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/durations"
 # Where the UI persists user choices (currently just the language). Created
 # here rather than from QML because Quickshell's file writer won't create
 # missing parent directories, and this script runs on every poll — so the
@@ -23,6 +24,7 @@ thumbnail_dir="${XDG_CACHE_HOME:-$HOME/.cache}/quickshell/dynamic-island/thumbna
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/dynamic-island"
 mkdir -p "$base_dir"
 mkdir -p "$thumbnail_dir"
+mkdir -p "$duration_dir"
 mkdir -p "$config_dir"
 
 # Apps whose simultaneous playback + capture stream counts as an active call.
@@ -39,6 +41,13 @@ lyrics_miss_ttl=604800
 # pure waste. A short-lived on-disk cache avoids the call when the last
 # snapshot is still fresh.
 players_ttl=2
+
+# A cached "0" means either a genuine live stream or a failed lookup.
+# Re-checked periodically rather than cached forever, because a live
+# broadcast commonly turns into an ordinary finite-length video at the
+# very same id once it ends — a real (non-zero) duration never
+# changes and is kept forever, this TTL only ever applies to zero.
+duration_miss_ttl=3600
 
 # Every playerctl call in this script goes through the selection resolved here.
 # Without -p, playerctl targets whichever instance it happens to list first,
@@ -146,6 +155,40 @@ youtube_art_for() {
     # hqdefault exists for effectively every public video and keeps the first
     # frame useful while the higher-quality local cache is being populated.
     printf 'https://i.ytimg.com/vi/%s/hqdefault.jpg' "$id"
+}
+
+# Firefox's MPRIS bridge never reports mpris:length for YouTube, live
+# or not, so a perfectly ordinary finite video looks exactly like a
+# live stream to the rest of this script. The watch page's own player
+# config carries the real duration; fetched and cached once per id,
+# same lock-and-background pattern as youtube_art_for above.
+youtube_duration_for() {
+    local id="$1"
+    local cache="$duration_dir/$id"
+    local lock="$duration_dir/$id.lock"
+
+    if [[ -s "$cache" ]]; then
+        local cached
+        cached=$(<"$cache")
+        if [[ "$cached" != "0" ]] || (( $(file_age "$cache") < duration_miss_ttl )); then
+            printf '%s' "$cached"
+            return 0
+        fi
+    fi
+
+    if command -v curl >/dev/null 2>&1 && mkdir "$lock" 2>/dev/null; then
+        (
+            trap 'rmdir "$lock" 2>/dev/null' EXIT
+            local html seconds
+            html=$(curl -fsSL --connect-timeout 2 --max-time 5 \
+                "https://www.youtube.com/watch?v=$id" 2>/dev/null)
+            seconds=$(grep -oE '"lengthSeconds":"[0-9]+"' <<<"$html" | head -n1 | grep -oE '[0-9]+')
+            [[ "$seconds" =~ ^[0-9]+$ ]] || seconds=0
+            printf '%s' "$seconds" > "$cache.tmp" && mv "$cache.tmp" "$cache"
+        ) >/dev/null 2>&1 &
+    fi
+
+    printf '0'
 }
 
 file_age() {
@@ -460,6 +503,10 @@ json_snapshot() {
     [[ "$status" == "Playing" || "$status" == "Paused" ]] || status="Stopped"
     [[ "$length_us" =~ ^[0-9]+$ ]] || length_us=0
     length_s=$((length_us / 1000000))
+    if (( length_s == 0 )) && [[ -n "$youtube_id" ]]; then
+        length_s=$(youtube_duration_for "$youtube_id")
+        [[ "$length_s" =~ ^[0-9]+$ ]] || length_s=0
+    fi
     # {{position}} is supposed to be playerctl's own normalized field, already
     # in seconds — but not every MPRIS bridge is spec-compliant about it.
     # Firefox's really is plain seconds; Spotify's (and most spec-following
