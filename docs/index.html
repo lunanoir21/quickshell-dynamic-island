@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dynamic Island for Quickshell</title>
 <meta name="description" content="A monochrome notch-style overlay for Hyprland. Media, timers, live device indicators and a pixel-art clock in one surface that grows under the pointer.">
+<meta property="og:type" content="website">
 <meta property="og:title" content="Dynamic Island for Quickshell">
 <meta property="og:description" content="A monochrome notch-style overlay for Hyprland.">
+<meta property="og:url" content="https://lunanoir21.github.io/quickshell-dynamic-island/">
 <meta property="og:image" content="cover.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
@@ -314,6 +316,24 @@ section + section { border-top: 1px solid var(--edge-soft); }
 }
 .term .sigil { color: var(--dim); user-select: none; }
 .term .cmt   { color: var(--dim); }
+.term { position: relative; }
+.copy {
+  all: unset;
+  position: absolute;
+  top: 9px; right: 9px;
+  min-width: 42px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.07);
+  border: 1px solid var(--edge-soft);
+  color: var(--lit);
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.copy:hover { background: rgba(255,255,255,.13); border-color: var(--edge); }
+.copy:focus-visible { outline: 2px solid var(--lit); outline-offset: 2px; }
 
 .keys { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
 .keys span {
@@ -610,6 +630,7 @@ footer .sp { flex: 1; }
   <p class="eyebrow">Install</p>
   <div class="term">
     <p class="bar">shell</p>
+    <button class="copy" type="button" data-copy="cmd-install" aria-label="Copy install commands">Copy</button>
 <pre><span class="sigil">$</span> git clone https://github.com/lunanoir21/quickshell-dynamic-island.git
 <span class="sigil">$</span> cd quickshell-dynamic-island
 <span class="sigil">$</span> chmod +x backend.sh
@@ -617,6 +638,10 @@ footer .sp { flex: 1; }
 
 <span class="cmt"># or drop it into an existing config and instantiate</span>
 <span class="cmt"># DynamicIslandModule.DynamicIslandHost {}</span></pre>
+    <code id="cmd-install" hidden>git clone https://github.com/lunanoir21/quickshell-dynamic-island.git
+cd quickshell-dynamic-island
+chmod +x backend.sh
+quickshell -p ./Main.qml</code>
   </div>
 
   <div class="prose" style="margin-top:26px">
@@ -660,13 +685,16 @@ footer .sp { flex: 1; }
 
 <footer class="wrap">
   <div class="fl">
-    <span>MIT licensed</span>
+    <span>MIT licensed · made by <a href="https://github.com/lunanoir21">luna</a></span>
     <span class="sp"></span>
     <a href="https://github.com/lunanoir21/quickshell-dynamic-island">Repository</a>
     <a href="https://quickshell.outfoxxed.me/">Quickshell</a>
     <a href="https://github.com/karlstav/cava">cava</a>
     <a href="https://lrclib.net">LRCLIB</a>
     <a href="https://github.com/ateliertriay/bricolage">Bricolage Grotesque</a>
+  </div>
+  <div class="fl" style="margin-top:10px">
+    <span>Also by luna: <a href="https://lunanoir21.github.io/quickshell-quay/">Quay</a>, a vertical app launcher for Quickshell</span>
   </div>
 </footer>
 
@@ -884,6 +912,23 @@ function render() {
 
 render();
 setInterval(render, 1000);
+
+/* --------------------------------------------------------------- copy */
+document.querySelectorAll("[data-copy]").forEach((button) => {
+  let reset = 0;
+  button.addEventListener("click", async () => {
+    const source = document.getElementById(button.dataset.copy);
+    if (!source) return;
+    try {
+      await navigator.clipboard.writeText(source.textContent.trim());
+    } catch (e) {
+      return;
+    }
+    button.textContent = "✓";
+    clearTimeout(reset);
+    reset = setTimeout(() => { button.textContent = "Copy"; }, 1400);
+  });
+});
 
 let resizeJob;
 addEventListener("resize", () => {
