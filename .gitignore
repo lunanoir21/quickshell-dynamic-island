@@ -8,6 +8,9 @@ slow.json
 weather.json
 network.state
 
+__pycache__/
+*.pyc
+
 # Editor / OS noise
 .DS_Store
 *.swp

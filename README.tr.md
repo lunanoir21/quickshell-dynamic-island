@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="assets/logo.svg" width="96" alt="Dynamic Island logosu">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+  <img src="docs/logo.svg" width="96" alt="Dynamic Island logosu">
+</picture>
 
 # Quickshell için Dynamic Island
 
@@ -8,7 +11,7 @@ Hyprland ve Quickshell için ayarlanabilir bir Dynamic Island masaüstü widget'
 MPRIS medya oynatıcı, CAVA ses görselleştirici, bildirimler, gizlilik
 göstergeleri, temalar ve pixel-art saat; uyarlanabilir tek bir katmanda.
 
-[![Sürüm](https://img.shields.io/badge/Sürüm-v1.0.0-111111?style=flat-square)](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
+[![Sürüm](https://img.shields.io/badge/Sürüm-2026.08.17-111111?style=flat-square)](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
 [![Quickshell](https://img.shields.io/badge/Quickshell-0.3%2B-111111?style=flat-square)](https://quickshell.outfoxxed.me/)
 [![Hyprland](https://img.shields.io/badge/Hyprland-wlroots-111111?style=flat-square)](https://hyprland.org/)
 [![Lisans](https://img.shields.io/badge/Lisans-MIT-111111?style=flat-square)](LICENSE)
@@ -69,25 +72,16 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 </tr>
 </table>
 
-## Neler değişti
-
-**Kayan ayarlar, ve gri olmayan üç tema** — ayarlar penceresi okunaklıydı ama
-durağandı; her yeni duruma kesip geçiyordu. Artık ne yaptığını canlandırıyor —
-seçim kayıyor, anahtarlar kayıyor, bölümler belirerek açılıyor — ve sonunda
-seçmek için kullanıldığı temayı kendisi de takip ediyor. Gold, Amber ve Red,
-dört nötr temaya katılıyor.
-
-<table>
-<tr>
-<td colspan="2"><img src="docs/screenshots/changelog/themes.png" alt="Amber temasında ayarlar penceresinin Görünüm bölümü, ızgara halinde yedi tema kartı"><br><sub><b>Yedi tema, temalarıyla gösteriliyor</b> — her kart kendi renkleriyle küçültülmüş bir ada çiziyor, ve çevresindeki pencere de o temayı giyiyor</sub></td>
-</tr>
-<tr>
-<td width="50%"><img src="docs/screenshots/changelog/chime-test.png" alt="Bir satıra sarılmış on bir melodi çipiyle zaman araçları ayarları"><br><sub><b>On bir melodi, hepsine erişilebilir</b> — eski seçici yedinci sesten sonra kenardan taşıyordu; artık seçince çalıyor</sub></td>
-<td width="50%"><img src="docs/screenshots/changelog/settings-switches.png" alt="Kayan anahtarlar ve segmentli süre seçiciyle bildirim ayarları"><br><sub><b>Kayan anahtarlar</b> — konum ve dolgu açık/kapalı diyor, süre seçici de tek bir vurguyu kaydırıyor</sub></td>
-</tr>
-</table>
+<!-- changelog:readme:start -->
+**YouTube kapakları, İngilizce olmayan yerellerde düzeltildi** — tr_TR.UTF-8
+gibi yerellerde glibc'nin regex motoru [A-Za-z]'yi düz bir bayt aralığı değil,
+sıralamaya duyarlı bir aralık olarak ele alır. Bu, backend.sh içindeki
+video-id eşleştirmesini, Türkçe sıralamanın algılanan A-Z/a-z aralığının
+dışına yerleştirdiği harf içeren her id'de sessizce bozdu; ada da tek video
+için kapak çekmek yerine boş bir kapağa düşüyordu.
 
 [Tüm değişiklik günlüğü →](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
+<!-- changelog:readme:end -->
 
 ## Özellikler
 
@@ -476,6 +470,13 @@ sırasına düzler.
 - [Bricolage Grotesque](https://github.com/ateliertriay/bricolage) (OFL 1.1, dahil)
 - Spektrum verisi için [cava](https://github.com/karlstav/cava)
 - Şarkı sözleri için [LRCLIB](https://lrclib.net)
+
+## Yazarın diğer projesi
+
+[Quickshell için Quay](https://github.com/lunanoir21/quickshell-quay) — dikey,
+ana ekran tarzı bir uygulama başlatıcı: sabitlenmiş uygulamalar, klasörler ve
+çalışan pencereler; tekerlek çentiği başına bir satır hareket eden tek bir
+rayda.
 
 ## Lisans
 

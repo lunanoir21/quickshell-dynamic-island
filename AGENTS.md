@@ -15,47 +15,60 @@ Three things, in order. None are optional.
 
 ### 1. Write the changelog entry
 
-`docs/changelog.json` is the single source of truth for what shipped. Both the
-site's front page and its archive page read it, so an entry written once
-appears in both.
+`CHANGELOG.md` (and its Turkish counterpart `CHANGELOG.tr.md`) is the single
+source of truth for what shipped. A release is written as Markdown, newest
+first:
 
-Add a new object at the **top** of `releases[]`:
+```md
+## [2026.08.17] - 2026-08-17
 
-```json
-{
-  "version": "2026.08.17",
-  "date": "2026-08-17",
-  "title": "A short sentence, not a version bump",
-  "summary": "Two or three sentences: what changed and why it was worth doing.",
-  "changes": [
-    { "type": "added",   "text": "..." },
-    { "type": "changed", "text": "..." },
-    { "type": "fixed",   "text": "..." },
-    { "type": "removed", "text": "..." }
-  ],
-  "shots": [
-    { "src": "screenshots/changelog/name.png", "alt": "...", "caption": "...", "text": "...", "wide": true }
-  ]
-}
+**A short sentence, not a version bump**
+
+Two or three sentences: what changed and why it was worth doing.
+
+### Added
+
+- One bullet, one sentence: what the change does **for the person using it**,
+  not which function was edited. "The chime picker ran past the right edge of
+  the window — four of the eleven sounds could not be reached" beats "fixed
+  ChimePicker layout".
+
+### Fixed
+
+- ...
+
+### Shots
+
+- ![what the image shows](screenshots/changelog/name.png "wide") — **Caption**
+  — Sentence under it. The markdown title `"wide"` makes the card span the
+  full grid; a shot without it shares a row with the next one.
 ```
 
 - **Versions are dates** (`YYYY.MM.DD`), because releases here are "the day the
   work landed", not semver.
 - If a release lands on a date that already has an entry, **edit that entry**
   rather than adding a second one for the same day.
-- `type` is one of `added` / `changed` / `fixed` / `removed`.
-- Write what the change *does for the person using it*, not which function was
-  edited. "The chime picker ran past the right edge of the window — four of the
-  eleven sounds could not be reached" beats "fixed ChimePicker layout".
-- `alt` is for screen readers and describes the image. `caption` is a short
-  bold label. `text` is the sentence under it. `wide` makes the card span the
-  full grid.
+- Groups are `### Added` / `Changed` / `Fixed` / `Removed` / `Shots`.
+  A change group's `type` is its heading's lowercase name, so anything else is
+  rejected by the script with a named error.
+- `Shots` bullets reference files in `docs/` (they live in
+  `docs/screenshots/changelog/`). The image's alt text is for screen readers
+  and describes the image. `caption` is the short bold label. `text` is the
+  sentence under it.
+- The English and Turkish files must list the same versions; the script
+  refuses to run while they diverge.
 
-Validate before committing:
+Then regenerate everything the entry feeds — the READMEs' latest-release
+section and `docs/changelog.json` (what both site pages read):
 
 ```sh
-jq -e '.releases | length' docs/changelog.json
+python3 scripts/changelog.py        # rewrite the generated blocks
+python3 scripts/changelog.py --check   # exit 1 if any block is stale
 ```
+
+`docs/changelog.json` is generated output — never edit it (or release markup
+in the HTML pages) by hand; edit `CHANGELOG.md` and let the script apply it.
+`--notes 2026.08.17` prints one release as Markdown, for a GitHub release body.
 
 ### 2. Take the screenshots
 
@@ -157,8 +170,9 @@ below, so it is a first pass, not a verdict.
   network calls and a geolocation lookup per refresh, for data nothing on the
   island displayed.
 - **Do not hand-write release markup into `index.html` or `changelog.html`.**
-  Both build themselves from `changelog.json`. Editing the markup creates a
-  second copy that will drift.
+  Both build themselves from `docs/changelog.json`, which
+  `scripts/changelog.py` regenerates — edit `CHANGELOG.md` and run the script
+  instead. Editing the docs by hand creates a second copy that will drift.
 
 ---
 
@@ -173,7 +187,9 @@ below, so it is a first pass, not a verdict.
 | `backend.sh` | State snapshot (`snapshot`) and actions, as one JSON object |
 | `tools/capture.sh` | The only way screenshots are taken |
 | `tools/demo.sh` | Records the tour video |
-| `docs/changelog.json` | Every release — the source both pages read |
+| `CHANGELOG.md`, `CHANGELOG.tr.md` | Release notes — the single source of truth for what ships |
+| `scripts/changelog.py` | Copies the latest release into the READMEs, regenerates `docs/changelog.json` |
+| `docs/changelog.json` | Every release, generated — the data both site pages read |
 | `docs/index.html` | The front page; shows the newest release |
 | `docs/changelog.html` | The archive; shows all of them |
 | `Makefile` | IPC shortcuts for exercising widgets by hand |

@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="assets/logo.svg" width="96" alt="Dynamic Island logo">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+  <img src="docs/logo.svg" width="96" alt="Dynamic Island logo">
+</picture>
 
 # Dynamic Island for Quickshell
 
@@ -8,7 +11,7 @@ A configurable Dynamic Island desktop widget for Hyprland and Quickshell — an
 MPRIS media player with a CAVA audio visualizer, notifications, privacy
 indicators, themes and a pixel-art clock in one adaptive overlay.
 
-[![Version](https://img.shields.io/badge/Version-v1.0.0-111111?style=flat-square)](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
+[![Version](https://img.shields.io/badge/Version-2026.08.17-111111?style=flat-square)](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
 [![Quickshell](https://img.shields.io/badge/Quickshell-0.3%2B-111111?style=flat-square)](https://quickshell.outfoxxed.me/)
 [![Hyprland](https://img.shields.io/badge/Hyprland-wlroots-111111?style=flat-square)](https://hyprland.org/)
 [![License](https://img.shields.io/badge/License-MIT-111111?style=flat-square)](LICENSE)
@@ -69,25 +72,16 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 </tr>
 </table>
 
-## What changed
-
-**Settings that move, and three themes that are not grey** — the settings
-window was legible but static, cutting to every new state. It now animates
-what it's doing — the selection slides, switches slide, sections fade in —
-and finally follows the theme it's used to pick. Gold, Amber and Red join the
-four neutrals.
-
-<table>
-<tr>
-<td colspan="2"><img src="docs/screenshots/changelog/themes.png" alt="The Appearance section of the settings window in the Amber theme, showing seven theme cards in a grid"><br><sub><b>Seven themes, shown as themes</b> — each card draws a shrunken island in that theme's own colours, and the window around it wears the theme too</sub></td>
-</tr>
-<tr>
-<td width="50%"><img src="docs/screenshots/changelog/chime-test.png" alt="The time tools settings section with eleven chime chips wrapped onto one row"><br><sub><b>Eleven chimes, all reachable</b> — the picker used to run off the edge past the seventh sound; picking one now plays it</sub></td>
-<td width="50%"><img src="docs/screenshots/changelog/settings-switches.png" alt="Notification settings rows with sliding toggle switches and a segmented duration picker"><br><sub><b>Switches that slide</b> — position and fill say on or off, and the duration picker slides one highlight</sub></td>
-</tr>
-</table>
+<!-- changelog:readme:start -->
+**YouTube covers, fixed for non-English locales** — Under locales like
+tr_TR.UTF-8, glibc's regex engine treats [A-Za-z] as collation-aware rather
+than a plain byte range. That silently broke the video-id match in backend.sh
+for any id containing a letter Turkish collation sorts outside the perceived
+A-Z/a-z range, so the island fell back to a blank cover for a large share of
+videos instead of fetching one.
 
 [Full changelog →](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
+<!-- changelog:readme:end -->
 
 ## Features
 
@@ -98,10 +92,11 @@ four neutrals.
   mirrored around the centre so the low bands meet in the middle. It spans the
   collapsed pill too; Live maps cava frame-for-frame, while Wave and Calm offer
   shaped variants and a synthetic fallback when cava is unavailable.
-- **Settings and themes** — a full settings surface for Black, Umbra, Gray and
-  White themes, clock styles, notification/call behaviour, media features,
-  language, hover behaviour and animation visibility. Every picker previews the
-  thing it changes.
+- **Settings and themes** — seven themes — Black, Umbra, Gray, White, Gold,
+  Amber and Red — clock styles, notification/call behaviour, media features,
+  language, hover behaviour and animation visibility. The settings window
+  crossfades between palettes rather than cutting, and every picker previews
+  the thing it changes.
 - **Click-to-open mini player** — turn hover opening off and the collapsed island
   can reduce itself to cover, title and previous/play/next. Clicking empty pill
   space opens the full player; both behaviours are independently configurable.
@@ -481,6 +476,12 @@ motionless row of stubs.
 - [Bricolage Grotesque](https://github.com/ateliertriay/bricolage) (OFL 1.1, bundled)
 - [cava](https://github.com/karlstav/cava) for the spectrum data
 - [LRCLIB](https://lrclib.net) for lyrics
+
+## Also by the author
+
+[Quay for Quickshell](https://github.com/lunanoir21/quickshell-quay) — a
+vertical, home-screen-style app launcher: pinned apps, folders and running
+windows in one rail that moves one row per wheel notch.
 
 ## License
 
