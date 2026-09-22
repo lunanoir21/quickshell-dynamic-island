@@ -26,6 +26,46 @@ line, a short `summary` paragraph, and a `### Shots` section:
       sentence underneath. The image's markdown title `"wide"` makes it span
       the grid.
 
+## [2026.09.23] - 2026-09-23
+
+**Proactive hardening pass ahead of an Omarchy marketplace submission**
+
+Before submitting to the Omarchy marketplace, a security and robustness audit
+went through everything the island takes from the outside world: strings from
+notifications and media players, external shell commands, background processes
+and the settings file. Every finding was fixed up front rather than waiting
+for a reviewer to hit it — no visual changes, just the same island made harder
+to wedge, confuse or inject into.
+
+### Fixed
+
+- Text arriving from notifications, media players, the volume mixer and IPC
+  commands now always renders as plain text with a length cap at the point it
+  enters the island, so a hostile or broken app can no longer smuggle styled
+  markup into the UI or grow a label without bound.
+- External commands that previously ran with no deadline (mixer volume changes,
+  bluetooth/wifi/battery reads, media player actions) are now time-bounded, and
+  the background locks guarding them recover on their own if left stale — one
+  hung command can no longer freeze polling or make buttons dead until reload.
+- Dismissing a timed alarm now actually releases the keyboard lock the alert
+  took, instead of leaving the island locked open with an exclusive keyboard
+  grab and nothing on screen to explain why.
+- The lyrics search and the state snapshot process now have stall deadlines —
+  a track change can no longer leave the lyrics pane stuck "searching" forever,
+  and a hung snapshot can no longer freeze every value the island shows until
+  it is reloaded.
+- The track queue panel is capped in size and no longer recomputes every row's
+  position offset from scratch on every tick, so a player advertising a huge
+  queue cannot make the panel grow without bound or cost O(N²) per update.
+- The volume-mixer and player-switcher rows only rebuild when their contents
+  actually change, instead of tearing down and recreating every row on every
+  refresh.
+- Saving settings on one screen now merges with what is already on disk and
+  only writes the keys that screen actually changed, so two monitors saving
+  near-simultaneously no longer overwrite each other's choice (last-writer-wins).
+- Fetches of remote artwork and lyrics are capped in size and stale cache files
+  are swept, so a misbehaving endpoint cannot fill the disk.
+
 ## [2026.08.17] - 2026-08-17
 
 **YouTube covers, fixed for non-English locales**

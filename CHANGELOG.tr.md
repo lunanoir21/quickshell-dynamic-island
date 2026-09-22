@@ -27,6 +27,50 @@ kısa bir `özet` paragrafı ve bir `### Shots` bölümü:
       altındaki cümle. Görselin markdown başlığı `"wide"`, kartın ızgaranın
       tamamını kaplamasını sağlar.
 
+## [2026.09.23] - 2026-09-23
+
+**Omarchy marketplace gönderimi öncesi proaktif güvenlik geçişi**
+
+Omarchy marketplace'e gönderilmeden önce, ada dışarıdan aldığı her şeye bir
+güvenilirlik ve güvenlik taraması yapıldı: bildirimlerden ve medya
+oynatıcılardan gelen metinler, dışarıya açılan komutlar, arka plan
+süreçleri ve ayar dosyası. Tüm bulgular bir inceleyicinin üstüne gelmesini
+beklemeden önceden düzeltildi — görsel bir değişiklik yok; aynı ada, daha
+zor donan, şaşırtılan veya metin enjekte edilemeyen hâli.
+
+### Fixed
+
+- Bildirimlerden, medya oynatıcılardan, ses mikserinden ve IPC komutlarından
+  gelen metin artık her zaman düz metin olarak ve adaya girerken uzunluk
+  sınırıyla gösteriliyor; düşmanca ya da bozuk bir uygulama artık arayüze
+  stilili markup sıvayamıyor veya etiketi sınırsız büyütemiyor.
+- Daha önce süresiz çalışan dış komutlar (ses seviyesi değişimleri,
+  bluetooth/wifi/pil okumaları, medya oynatıcı eylemleri) artık süre
+  sınırına bağlı; bunları koruyan arka plan kilitleri de takılı kalırsa
+  kendiliğinden toparlanıyor — tek bir asılı komut artık yeniden yükleyene
+  kadar yoklamayı veya düğmeleri donduramıyor.
+- Zamanlanmış bir alarmı kapartmak, uyarının aldığı klavye kilidini artık
+  gerçekten bırakıyor; ekranda açıklama yokken ada kilitli ve klavye
+  manipülasyonu elinde kalıyor.
+- Şarkı sözü araması ve durum anlık görüntüsü süreci artık takılma
+  süre sınırına sahip — bir parça değişimi söz penceresini sonsuza kadar
+  "aranıyor" bırakamıyor, asılı bir anlık görüntü ada da gösterdiği her
+  değeri yeniden yükleyene kadar donduramıyor.
+- Parça kuyruğu paneli boyut bakımından sınırlandırıldı ve her satırın
+  konum farkı artık her tikte baştan hesaplanmıyor; dev bir kuyruk
+  bildiren bir oynatıcı paneli sınırsız büyütemiyor veya O(N²) maliyet
+  yükleyemiyor.
+- Ses mikseri ve oynatıcı değiştirici satırları, içerikleri gerçekten
+  değiştiğinde yeniden kuruluyor; her yenilemede her satırı söküp
+  yeniden oluşturmuyor.
+- Bir ekranda ayar kaydetmek artık disktekiyle birleşiyor ve yalnızca o
+  ekranın gerçekten değiştirdiği anahtarları yazıyor; iki monitor neredeyse
+  aynı anda kaydettiğinde birbirinin seçimini artık ezmeyor (son yazan
+  kazanır).
+- Uzaktaki kapak ve şarkı sözü indirmeleri boyut bakımından sınırlandırılıyor,
+  eski önbellek dosyaları temizleniyor; davranış bozuk bir uç nokta diski
+  dolduramıyor.
+
 ## [2026.08.17] - 2026-08-17
 
 **YouTube kapakları, İngilizce olmayan yerellerde düzeltildi**

@@ -73,12 +73,13 @@ Everything is drawn in greyscale. There is no accent colour anywhere.
 </table>
 
 <!-- changelog:readme:start -->
-**YouTube covers, fixed for non-English locales** — Under locales like
-tr_TR.UTF-8, glibc's regex engine treats [A-Za-z] as collation-aware rather
-than a plain byte range. That silently broke the video-id match in backend.sh
-for any id containing a letter Turkish collation sorts outside the perceived
-A-Z/a-z range, so the island fell back to a blank cover for a large share of
-videos instead of fetching one.
+**Proactive hardening pass ahead of an Omarchy marketplace submission** —
+Before submitting to the Omarchy marketplace, a security and robustness audit
+went through everything the island takes from the outside world: strings from
+notifications and media players, external shell commands, background processes
+and the settings file. Every finding was fixed up front rather than waiting
+for a reviewer to hit it — no visual changes, just the same island made harder
+to wedge, confuse or inject into.
 
 [Full changelog →](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
 <!-- changelog:readme:end -->

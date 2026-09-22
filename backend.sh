@@ -130,7 +130,7 @@ youtube_art_for() {
             trap 'rmdir "$lock" 2>/dev/null; rm -f "$cache.tmp"' EXIT
             local quality width height bytes
             for quality in maxresdefault sddefault hqdefault mqdefault; do
-                curl -fsSL --connect-timeout 2 --max-time 7 --retry 1 \
+                curl -fsSL --connect-timeout 2 --max-time 7 --retry 1 --max-filesize 5242880 \
                     -o "$cache.tmp" "https://i.ytimg.com/vi/$id/$quality.jpg" || continue
 
                 bytes=$(stat -c %s "$cache.tmp" 2>/dev/null || echo 0)
@@ -180,7 +180,7 @@ youtube_duration_for() {
         (
             trap 'rmdir "$lock" 2>/dev/null' EXIT
             local html seconds
-            html=$(curl -fsSL --connect-timeout 2 --max-time 5 \
+            html=$(curl -fsSL --connect-timeout 2 --max-time 5 --max-filesize 5242880 \
                 "https://www.youtube.com/watch?v=$id" 2>/dev/null)
             seconds=$(grep -oE '"lengthSeconds":"[0-9]+"' <<<"$html" | head -n1 | grep -oE '[0-9]+')
             [[ "$seconds" =~ ^[0-9]+$ ]] || seconds=0
@@ -216,6 +216,10 @@ if (( $(file_age "$base_dir/.cache_swept") > 86400 )); then
         # only ever reaps markers and tracks that stopped mattering long ago.
         find "$thumbnail_dir" -type f -mtime +30 -delete
         find "$lyrics_dir" -type f -mtime +180 -delete
+        # A capped response body (see lyrics_for's --max-filesize) still
+        # leaves room for an oversized entry to have been cached before this
+        # limit existed; reap those on size alone regardless of age.
+        find "$lyrics_dir" -type f -size +512k -delete
         # file_age tests `-s` (non-empty), so the marker has to actually hold
         # a byte or two — a plain `touch` leaves a 0-byte file that reads as
         # "missing" forever, which would run this sweep on every poll instead
@@ -267,7 +271,7 @@ lyrics_for() {
     trap 'rmdir "$lock" 2>/dev/null' RETURN
 
     local response synced plain
-    response=$(curl -fsSL --max-time 6 -G 'https://lrclib.net/api/get' \
+    response=$(curl -fsSL --max-time 6 --max-filesize 5242880 -G 'https://lrclib.net/api/get' \
         --data-urlencode "artist_name=$artist" \
         --data-urlencode "track_name=$title" \
         ${duration:+--data-urlencode "duration=$duration"} 2>/dev/null || true)
@@ -276,7 +280,7 @@ lyrics_for() {
     # Players round differently, so a miss here is often just that — retry
     # without the constraint before believing the track has no lyrics.
     if [[ -z "$response" ]]; then
-        response=$(curl -fsSL --max-time 6 -G 'https://lrclib.net/api/get' \
+        response=$(curl -fsSL --max-time 6 --max-filesize 5242880 -G 'https://lrclib.net/api/get' \
             --data-urlencode "artist_name=$artist" \
             --data-urlencode "track_name=$title" 2>/dev/null || true)
     fi
@@ -302,7 +306,16 @@ lyrics_for() {
 # poll. It is refreshed in the background and the snapshot reads the last result.
 refresh_slow() {
     (( $(file_age "$slow_cache") > slow_ttl )) || return 0
-    mkdir "$slow_lock" 2>/dev/null || return 0
+    # A blocked command inside the subshell below (D-Bus/NetworkManager stuck
+    # during suspend-resume, say) would leave this lock directory held forever
+    # since the EXIT trap that removes it never runs. Any lock older than a
+    # full order of magnitude past this function's normal 10-200ms cost is
+    # certainly abandoned, not merely a concurrent refresh in flight.
+    if ! mkdir "$slow_lock" 2>/dev/null; then
+        (( $(file_age "$slow_lock") > 30 )) || return 0
+        rmdir "$slow_lock" 2>/dev/null
+        mkdir "$slow_lock" 2>/dev/null || return 0
+    fi
     (
         trap 'rmdir "$slow_lock" 2>/dev/null' EXIT
 
@@ -311,9 +324,9 @@ refresh_slow() {
         battery_time=""
         if command -v upower >/dev/null 2>&1; then
             local upower_battery
-            upower_battery=$(upower -e 2>/dev/null | grep -m1 battery || true)
+            upower_battery=$(timeout 1 upower -e 2>/dev/null | grep -m1 battery || true)
             if [[ -n "$upower_battery" ]]; then
-                battery_time=$(upower -i "$upower_battery" 2>/dev/null \
+                battery_time=$(timeout 1 upower -i "$upower_battery" 2>/dev/null \
                     | awk -F: '/time to (empty|full)/ {gsub(/^[ \t]+/,"",$2); print $2; exit}' || true)
             fi
         fi
@@ -325,10 +338,10 @@ refresh_slow() {
         camera_active=false
         if command -v fuser >/dev/null 2>&1 && fuser /dev/video* >/dev/null 2>&1; then camera_active=true; fi
 
-        wifi=$(iwgetid -r 2>/dev/null || true)
+        wifi=$(timeout 1 iwgetid -r 2>/dev/null || true)
         wifi_powered=true
         if command -v nmcli >/dev/null 2>&1; then
-            [[ "$(nmcli radio wifi 2>/dev/null)" == "enabled" ]] || wifi_powered=false
+            [[ "$(timeout 1 nmcli radio wifi 2>/dev/null)" == "enabled" ]] || wifi_powered=false
         fi
 
         jq -nc \
@@ -426,11 +439,16 @@ track_queue() {
         [[ -n "$path" ]] || continue
         track_args+=("$path")
         count=$((count + 1))
+        # The UI only ever shows a short "up next" strip, and an MPRIS bridge
+        # advertising a huge TrackList would otherwise grow argv without
+        # bound and hand busctl a matching flood of metadata to fetch.
+        (( count >= 50 )) && break
     done <<<"$paths"
 
     local meta current
     meta=$(timeout 2 busctl --user --json=short call "$bus" /org/mpris/MediaPlayer2 \
-        org.mpris.MediaPlayer2.TrackList GetTracksMetadata ao "$count" "${track_args[@]}" 2>/dev/null)
+        org.mpris.MediaPlayer2.TrackList GetTracksMetadata ao "$count" "${track_args[@]}" 2>/dev/null \
+        | head -c 262144)
     [[ -n "$meta" ]] || { printf '{"supported":true,"tracks":[]}'; return; }
 
     # Everything before the playing track has already been heard, so "up next"
@@ -544,8 +562,8 @@ json_snapshot() {
     mic_active=false
     if [[ "$mic_muted" == "false" ]] && command -v pactl >/dev/null 2>&1; then
         local default_source source_state
-        default_source=$(pactl get-default-source 2>/dev/null || true)
-        source_state=$(pactl list sources 2>/dev/null \
+        default_source=$(timeout 1 pactl get-default-source 2>/dev/null || true)
+        source_state=$(timeout 1 pactl list sources 2>/dev/null \
             | awk -v target="$default_source" '$1=="Name:" {hit=($2==target)} hit && $1=="State:" {print tolower($2); exit}')
         [[ "$source_state" == "running" ]] && mic_active=true
     fi
@@ -562,13 +580,13 @@ json_snapshot() {
     if command -v pactl >/dev/null 2>&1; then
         # Sink inputs are read once and shared between the call heuristic and
         # the mixer panel rather than shelling out to pactl twice per snapshot.
-        sink_inputs_raw=$(pactl list sink-inputs 2>/dev/null || true)
+        sink_inputs_raw=$(timeout 1 pactl list sink-inputs 2>/dev/null || true)
     fi
     local call_active=false call_app="" call_duration=0
     if command -v pactl >/dev/null 2>&1; then
         local playback_apps capture_apps
         playback_apps=$(awk -F'= ' '/application\.(name|process\.binary)/ {gsub(/"/,"",$2); print tolower($2)}' <<<"$sink_inputs_raw")
-        capture_apps=$(pactl list source-outputs 2>/dev/null \
+        capture_apps=$(timeout 1 pactl list source-outputs 2>/dev/null \
             | awk -F'= ' '/application\.(name|process\.binary)/ {gsub(/"/,"",$2); print tolower($2)}')
         if [[ -n "$playback_apps" && -n "$capture_apps" ]]; then
             call_app=$(grep -iE "$call_app_pattern" <<<"$playback_apps" | while read -r app; do
@@ -666,6 +684,9 @@ case "${1:-snapshot}" in
     play-pause|next|previous)
         resolve_player
         timeout 2 playerctl "${player_args[@]}" "$1" >/dev/null 2>&1 || true ;;
+    position)
+        resolve_player
+        timeout 2 playerctl "${player_args[@]}" position "${2:-0}" >/dev/null 2>&1 || true ;;
     select-player)
         printf '%s' "${2:-}" > "$player_state.tmp" && mv "$player_state.tmp" "$player_state" ;;
     mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle >/dev/null 2>&1 || true ;;
@@ -686,21 +707,21 @@ case "${1:-snapshot}" in
         done ;;
     shuffle)
         resolve_player
-        playerctl "${player_args[@]}" shuffle Toggle >/dev/null 2>&1 || true ;;
+        timeout 2 playerctl "${player_args[@]}" shuffle Toggle >/dev/null 2>&1 || true ;;
     loop)
         resolve_player
-        current=$(playerctl "${player_args[@]}" loop 2>/dev/null || echo None)
+        current=$(timeout 2 playerctl "${player_args[@]}" loop 2>/dev/null || echo None)
         [[ "$current" == "None" ]] && next=Playlist || { [[ "$current" == "Playlist" ]] && next=Track || next=None; }
-        playerctl "${player_args[@]}" loop "$next" >/dev/null 2>&1 || true ;;
+        timeout 2 playerctl "${player_args[@]}" loop "$next" >/dev/null 2>&1 || true ;;
     lyrics) lyrics_for "${2:-}" "${3:-}" "${4:-0}" ;;
     # Quick-settings tiles. Read the current power state fresh rather than
     # trusting the (up to 15s stale) slow cache, so a rapid toggle always
     # flips from where the radio actually is, not from a stale snapshot.
     bluetooth-toggle)
         if timeout 2 bluetoothctl show 2>/dev/null | grep -q 'Powered: yes'; then
-            bluetoothctl power off >/dev/null 2>&1 || true
+            timeout 2 bluetoothctl power off >/dev/null 2>&1 || true
         else
-            bluetoothctl power on >/dev/null 2>&1 || true
+            timeout 2 bluetoothctl power on >/dev/null 2>&1 || true
         fi ;;
     # Completion chime. Uses ALSA aplay for reliability (produces audible output),
 # with PipeWire/pulseaudio fallbacks. A chime-stop command is also provided
@@ -738,10 +759,10 @@ case "${1:-snapshot}" in
         pkill -f "aplay.*timesup" 2>/dev/null || true
         ;;
     wifi-toggle)
-        if [[ "$(nmcli radio wifi 2>/dev/null)" == "enabled" ]]; then
-            nmcli radio wifi off >/dev/null 2>&1 || true
+        if [[ "$(timeout 2 nmcli radio wifi 2>/dev/null)" == "enabled" ]]; then
+            timeout 2 nmcli radio wifi off >/dev/null 2>&1 || true
         else
-            nmcli radio wifi on >/dev/null 2>&1 || true
+            timeout 2 nmcli radio wifi on >/dev/null 2>&1 || true
         fi ;;
     visualizer)
         if command -v cava >/dev/null 2>&1; then

@@ -22,6 +22,10 @@ PanelWindow {
     // own and close on a timer.
     property bool hovering: false
     property bool lockedOpen: false
+    // True only while lockedOpen is being held by raiseTimeAlert's own
+    // auto-expand, as opposed to a manual pin/click/IPC open — see
+    // alertExpandTimer and dismissTimeAlert.
+    property bool alertAutoOpened: false
     property bool notificationVisible: false
     property bool deviceEventVisible: false
     readonly property bool alertVisible: notificationVisible || deviceEventVisible || callVisible || timeAlertVisible
@@ -470,6 +474,14 @@ PanelWindow {
     // on the few players implementing the optional TrackList interface.
     property bool queueEnabled: false
 
+    // Last settings state this instance successfully loaded or wrote. Each
+    // monitor runs its own DynamicIsland instance against the same
+    // settings.json, so saveSettings uses this to read-merge-write: only keys
+    // this instance actually changed since its last sync are written, instead
+    // of a full overwrite that would clobber another monitor's just-saved edit
+    // (last-writer-wins).
+    property var _lastSyncedSettings: ({})
+
     FileView {
         id: settingsFile
         path: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config"))
@@ -482,8 +494,8 @@ PanelWindow {
         onTextChanged: if (window.settingsReady) window.loadSettings()
     }
 
-    function saveSettings() {
-        settingsFile.setText(JSON.stringify({
+    function currentSettingsSnapshot() {
+        return {
             themeName: window.themeName,
             showBorders: window.showBorders,
             islandMountStyle: window.islandMountStyle,
@@ -520,7 +532,23 @@ PanelWindow {
             queueStyle: window.queueStyle,
             timeChimeEnabled: window.timeChimeEnabled,
             chimeSound: window.chimeSound
-        }, null, 2) + "\n")
+        }
+    }
+
+    function saveSettings() {
+        let current = window.currentSettingsSnapshot()
+        settingsFile.reload()
+        let onDisk = {}
+        try {
+            let raw = String(settingsFile.text() || "").trim()
+            if (raw) onDisk = JSON.parse(raw)
+        } catch (error) { onDisk = {} }
+        let merged = Object.assign({}, onDisk)
+        for (let key in current) {
+            if (current[key] !== window._lastSyncedSettings[key]) merged[key] = current[key]
+        }
+        settingsFile.setText(JSON.stringify(merged, null, 2) + "\n")
+        window._lastSyncedSettings = merged
     }
 
     // Every key is read through one of these two helpers so a settings.json
@@ -596,6 +624,10 @@ PanelWindow {
             window.timeChimeEnabled = readBool(p, "timeChimeEnabled", window.timeChimeEnabled)
             window.chimeSound = readChoice(p, "chimeSound",
                 ["timesup", "chime1", "chime2", "chime3", "chime4", "chime5", "chime6", "chime7", "chime8", "chime9", "chime10"], window.chimeSound)
+            // Sync point for saveSettings' read-merge-write: record what this
+            // instance now believes is on disk, so only keys it subsequently
+            // changes are written (see _lastSyncedSettings above).
+            window._lastSyncedSettings = window.currentSettingsSnapshot()
         } catch (error) { /* missing or corrupt on first run — defaults stand */ }
     }
 
@@ -707,12 +739,18 @@ PanelWindow {
     // 800-1200ms even when no player actually changed. Recomputed only when
     // the player set's *content* (name + selection) actually differs.
     property var visiblePlayers: []
+    // Same array-identity problem as visiblePlayers above, for the two
+    // player-switcher layouts (segment/logos) that show every player rather
+    // than the chip row's capped-to-3 selection — they were binding straight
+    // to mediaPlayers and so rebuilt on every poll regardless.
+    property var stableMediaPlayers: []
     property string _visiblePlayersSig: ""
     onMediaPlayersChanged: {
         let all = window.mediaPlayers
         let sig = all.map(p => p.name + (window.isPlayerSelected(p) ? "*" : "")).join("|")
         if (sig === window._visiblePlayersSig) return
         window._visiblePlayersSig = sig
+        window.stableMediaPlayers = all
         if (all.length <= 3) { window.visiblePlayers = all; return }
         let picked = []
         let rest = []
@@ -856,22 +894,65 @@ PanelWindow {
     // are the two things DND is least meant to hide.
     property bool dndActive: false
     readonly property var appStreams: islandState.apps || []
+    // Same rebuild-on-every-poll problem as visiblePlayers/stableMediaPlayers
+    // above: the `interacting` guard in the snapshot handler only keeps this
+    // array's identity stable during an active drag, so outside of a drag the
+    // mixer column was rebuilding every one of its AppVolumeRow delegates on
+    // every ~800ms-1s poll even when nothing about the streams changed.
+    property var stableAppStreams: []
+    property string _appStreamsSig: ""
+    onAppStreamsChanged: {
+        let all = window.appStreams
+        let sig = all.map(a => a.name + ":" + a.volume + ":" + (a.muted ? 1 : 0) + ":" + (a.active ? 1 : 0)).join("|")
+        if (sig === window._appStreamsSig) return
+        window._appStreamsSig = sig
+        window.stableAppStreams = all
+    }
     readonly property var mediaQueue: islandState.queue || ({ supported: false, tracks: [] })
 
-    // How far off a queued track is: whatever is left of the current one, plus
-    // every track before it. A player that reports no lengths gets a bare
-    // position marker instead of a fabricated time.
-    function queueOffsetLabel(index) {
-        let tracks = window.mediaQueue.tracks || []
-        let total = Math.max(0, (window.islandState.media.length || 0) - window.mediaPosition)
-        let known = (window.islandState.media.length || 0) > 0
-        for (let i = 0; i < index && i < tracks.length; i++) {
+    // Same reasoning as visiblePlayers just above: `mediaQueue` gets a new
+    // array identity every poll even when the queue's actual contents did
+    // not change, which would otherwise rebuild every queue delegate (and,
+    // via queueOffsetLabel below, redo an O(index) walk per delegate) on
+    // every ~800-1200ms poll. Recomputed only on real content change, and
+    // capped — the panel only ever shows a short "up next" strip, so a
+    // player advertising a huge TrackList should not hand three Repeaters an
+    // unbounded model.
+    property var visibleQueueTracks: []
+    property var queueCumulativeLength: []
+    property string _queueTracksSig: ""
+    onMediaQueueChanged: {
+        let tracks = (window.mediaQueue.tracks || []).slice(0, 50)
+        let sig = tracks.map(t => t.id + ":" + t.length).join("|")
+        if (sig === window._queueTracksSig) return
+        window._queueTracksSig = sig
+        window.visibleQueueTracks = tracks
+        // Prefix sum of track lengths before each index, computed once here
+        // instead of by every delegate on every position tick. -1 marks
+        // "some earlier track's length is unknown" (mirrors the old
+        // per-call `known` flag).
+        let cumulative = []
+        let sum = 0
+        let allKnown = true
+        for (let i = 0; i < tracks.length; i++) {
+            cumulative.push(allKnown ? sum : -1)
             let len = Number(tracks[i].length) || 0
-            if (len > 0) total += len
-            else known = false
+            if (len > 0) sum += len
+            else allKnown = false
         }
-        if (!known) return "#" + (index + 1)
-        return "+" + window.formatTime(total)
+        window.queueCumulativeLength = cumulative
+    }
+
+    // How far off a queued track is: whatever is left of the current one, plus
+    // every track before it (from queueCumulativeLength). A player that
+    // reports no lengths gets a bare position marker instead of a fabricated
+    // time.
+    function queueOffsetLabel(index) {
+        let mediaKnown = (window.islandState.media.length || 0) > 0
+        let cum = window.queueCumulativeLength[index]
+        if (!mediaKnown || cum === undefined || cum < 0) return "#" + (index + 1)
+        let remaining = Math.max(0, (window.islandState.media.length || 0) - window.mediaPosition)
+        return "+" + window.formatTime(remaining + cum)
     }
 
     // Which optional sections backend.sh should build this poll. Both are shell
@@ -1175,9 +1256,14 @@ PanelWindow {
         window.timeAlertVisible = true
         window.timeAlertPulse = true
         timeAlertPulseTimer.restart()
-        // If the island is collapsed, briefly expand it to show the alert
+        // If the island is collapsed, briefly expand it to show the alert.
+        // alertAutoOpened marks that *this* is what took the lock, so the
+        // timer below knows it is the one allowed to release it again —
+        // without it, the timer's own guard against undoing someone else's
+        // manual lock also blocked it from ever undoing its own.
         if (!window.expanded && !window.lockedOpen) {
             window.lockedOpen = true
+            window.alertAutoOpened = true
             alertExpandTimer.restart()
         }
         // The card arrives under wherever the pointer already is, and the
@@ -1206,6 +1292,14 @@ PanelWindow {
         timeAlertTimeout.stop()
         timeAlertPulseTimer.stop()
         alertExpandTimer.stop()
+        // Release the lock this same alert took, if it's still holding it —
+        // otherwise dismissing the card (without ever hovering away first)
+        // left the island locked open under an exclusive keyboard grab with
+        // nothing left on screen to explain why.
+        if (window.alertAutoOpened) {
+            window.lockedOpen = false
+            window.alertAutoOpened = false
+        }
         window.run(["chime-stop"])
     }
 
@@ -1301,6 +1395,12 @@ PanelWindow {
         lyricsProcess.command = [window.backend, "lyrics", artist, title,
                                  String(Math.round(window.islandState.media.length || 0))]
         lyricsProcess.running = true
+        // backend.sh's own curl calls are time-bounded, but the process
+        // itself (spawn, exec, pipe teardown) has no external deadline; if
+        // it never exits, onStreamFinished never fires and the pane is
+        // stuck on "searching" until the next track change. This is the
+        // backstop.
+        lyricsStallTimer.restart()
     }
 
     // LRC is "[mm:ss.cc] text" per line. Anything without a leading timestamp
@@ -1309,13 +1409,17 @@ PanelWindow {
     function parseLyrics(raw) {
         let out = []
         let synced = false
-        let lines = String(raw).split("\n")
+        // LRCLIB is a third-party network response (see backend.sh's
+        // lyrics_for) — cap both line count and per-line length so a
+        // pathological/oversized reply cannot hand the QML side an
+        // unbounded model or unbounded Text content.
+        let lines = String(raw).split("\n").slice(0, 5000)
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i]
             if (line.trim() === "") continue
             // A single line can carry several timestamps for repeated choruses.
             let stamps = line.match(/\[\d+:\d+(?:[.:]\d+)?\]/g)
-            let text = line.replace(/\[\d+:\d+(?:[.:]\d+)?\]/g, "").trim()
+            let text = line.replace(/\[\d+:\d+(?:[.:]\d+)?\]/g, "").trim().slice(0, 200)
             if (stamps && stamps.length > 0) {
                 synced = true
                 for (let s = 0; s < stamps.length; s++) {
@@ -1381,6 +1485,7 @@ PanelWindow {
         id: lyricsProcess
         stdout: StdioCollector {
             onStreamFinished: {
+                lyricsStallTimer.stop()
                 window.lyricsLoading = false
                 let raw = text
                 if (!raw || raw.trim() === "") { window.lyricLines = []; window.lyricsSynced = false; return }
@@ -1388,21 +1493,44 @@ PanelWindow {
                 catch (error) { console.warn("Dynamic Island lyrics:", error); window.lyricLines = [] }
             }
         }
+        // Covers the case where the process exits (crash, killed) without the
+        // stdout stream ever finishing — onStreamFinished above would
+        // otherwise never run and lyricsLoading would stay stuck true.
+        onExited: {
+            lyricsStallTimer.stop()
+            window.lyricsLoading = false
+        }
     }
 
+    // Backstop for lyricsProcess never exiting at all (see reloadLyrics).
+    Timer {
+        id: lyricsStallTimer
+        interval: 8000
+        onTriggered: {
+            lyricsProcess.running = false
+            window.lyricsLoading = false
+        }
+    }
+
+    // Goes through backend.sh (window.run) rather than execDetached straight to
+    // playerctl: only backend.sh pins the target to the selected player
+    // (resolve_player/-p). A bare `playerctl play-pause` targets whatever
+    // instance it lists first, which silently drifts to a different player
+    // (e.g. pausing the YouTube tab instead of Spotify) the moment more than
+    // one is running.
     function mediaAction(command) {
         if (command === "play-pause") {
             mediaStatusOverride = mediaStatus === "Playing" ? "Paused" : "Playing"
-            Quickshell.execDetached(["playerctl", "play-pause"])
+            window.run(["play-pause"])
         } else if (command === "next" || command === "previous") {
-            Quickshell.execDetached(["playerctl", command])
+            window.run([command])
         } else if (command === "shuffle") {
             mediaShuffleOverride = mediaShuffle === "On" ? "Off" : "On"
-            Quickshell.execDetached(["playerctl", "shuffle", "Toggle"])
+            window.run(["shuffle"])
         } else if (command === "loop") {
             let next = mediaLoop === "None" ? "Playlist" : (mediaLoop === "Playlist" ? "Track" : "None")
             mediaLoopOverride = next
-            Quickshell.execDetached(["playerctl", "loop", next])
+            window.run(["loop"])
         }
         mediaOverrideTimer.restart()
         delayedRefresh.restart()
@@ -1589,7 +1717,16 @@ PanelWindow {
     Timer {
         id: alertExpandTimer
         interval: 5000
-        onTriggered: if (!window.hovering && !window.lockedOpen) window.lockedOpen = false
+        // The old `!window.lockedOpen` guard here was checking the very flag
+        // raiseTimeAlert had just set — it could never be false when this
+        // fires, so the body never ran and an auto-raised alert kept the
+        // island's WlrKeyboardFocus.Exclusive grab (see :2134) forever.
+        // alertAutoOpened (cleared here and in dismissTimeAlert) is what
+        // actually tracks whether *this* mechanism still owns the lock.
+        onTriggered: if (!window.hovering && window.alertAutoOpened) {
+            window.lockedOpen = false
+            window.alertAutoOpened = false
+        }
     }
 
     function run(args) {
@@ -1764,7 +1901,7 @@ PanelWindow {
         function toggle(): void { window.lockedOpen = !window.lockedOpen; if (!window.lockedOpen) window.closeIsland() }
         function open(): void { window.lockedOpen = true }
         function close(): void { window.closeIsland() }
-        function activity(text: string): void { window.activityText = text; activityTimer.restart() }
+        function activity(text: string): void { window.activityText = String(text).slice(0, 512); activityTimer.restart() }
         // "tr", "en", or "toggle". The choice is persisted, so this is also how
         // a keybind or a script can set the language once and have it stick.
         function language(code: string): void { window.setLanguage(code) }
@@ -1892,6 +2029,13 @@ PanelWindow {
     Process {
         id: snapshot
         command: [window.backend, "snapshot", window.snapshotMode]
+        // backend.sh's own hot-path commands are timeout-wrapped, but this is
+        // a second line of defense: if the backend process itself never
+        // exits for any reason, `running` never goes back to false and both
+        // poll guards below (`!snapshot.running`) would otherwise refuse to
+        // ever start another snapshot — freezing every value this reads
+        // (volume, mic/camera indicators, media, battery) until reload.
+        onRunningChanged: if (running) snapshotStallTimer.restart(); else snapshotStallTimer.stop()
         stdout: StdioCollector {
             onStreamFinished: {
                 let raw = text.trim()
@@ -2006,6 +2150,9 @@ PanelWindow {
         onTriggered: if (!snapshot.running) snapshot.running = true
     }
     Timer { id: delayedRefresh; interval: 180; onTriggered: if (!snapshot.running) snapshot.running = true }
+    // Backstop for the snapshot Process never exiting at all (see the note
+    // by its onRunningChanged above).
+    Timer { id: snapshotStallTimer; interval: 5000; onTriggered: snapshot.running = false }
     Timer { id: hudTimer; interval: 1700 }
     Timer { id: batteryOverrideTimer; interval: 8000; onTriggered: window.batteryOverride = null }
     Timer { id: cameraCloseTintTimer; interval: 180; onTriggered: window.cameraClosing = false }
@@ -2381,15 +2528,13 @@ PanelWindow {
                         clip: true
                         border.width: 1
                         border.color: window.themeLineStrong
-                        Image {
+                        FadeArt {
                             id: artThumbImage
                             anchors.fill: parent
                             visible: window.mediaAlbumArtEnabled
                             source: window.mediaAlbumArtEnabled
                                     ? String(window.islandState.media.art || "").replace("file://", "")
                                     : ""
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
                         }
                         Text {
                             anchors.centerIn: parent
@@ -2415,7 +2560,7 @@ PanelWindow {
                     }
                 }
 
-                Text {
+                FadeText {
                     visible: window.mediaStatus !== "Stopped"
                     Layout.maximumWidth: 210
                     text: window.islandState.media.title || i18n.media
@@ -2694,7 +2839,7 @@ PanelWindow {
                         spacing: 2
 
                         Repeater {
-                            model: window.mediaPlayers
+                            model: window.stableMediaPlayers
 
                             Rectangle {
                                 id: playerSegment
@@ -2858,19 +3003,17 @@ PanelWindow {
                             border.width: 1
                             border.color: "#16ffffff"
 
-                            Image {
+                            FadeArt {
                                 id: homeArt
                                 anchors.fill: parent
                                 visible: window.mediaAlbumArtEnabled
                                 source: window.mediaAlbumArtEnabled
                                         ? String(window.islandState.media.art || "").replace("file://", "")
                                         : ""
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
                                 // The scrim below already guarantees the caption
                                 // stays legible, so the cover itself can stay
                                 // close to full strength.
-                                opacity: 0.92
+                                baseOpacity: 0.92
                             }
                             Text {
                                 anchors.centerIn: parent
@@ -2891,7 +3034,7 @@ PanelWindow {
                             Column {
                                 anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 13 }
                                 spacing: 3
-                                Text {
+                                FadeText {
                                     width: parent.width
                                     text: window.islandState.media.title || i18n.nothingPlaying
                                     elide: Text.ElideRight
@@ -2910,7 +3053,7 @@ PanelWindow {
                                     width: parent.width
                                     height: 13
 
-                                    Text {
+                                    FadeText {
                                         anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
                                         visible: window.mediaPlayers.length <= 1
                                         text: window.islandState.media.player || "MPRIS"
@@ -2957,7 +3100,7 @@ PanelWindow {
                                         spacing: 7
 
                                         Repeater {
-                                            model: window.mediaPlayers
+                                            model: window.stableMediaPlayers
 
                                             Item {
                                                 id: playerLogo
@@ -3016,7 +3159,7 @@ PanelWindow {
 
                                     // B3 keeps this slot as the plain caption:
                                     // its control lives up in the status strip.
-                                    Text {
+                                    FadeText {
                                         anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter }
                                         visible: window.mediaPlayers.length > 1
                                                  && window.playerSwitcherStyle === "segment"
@@ -3037,7 +3180,7 @@ PanelWindow {
                             Layout.fillHeight: true
                             spacing: 0
 
-                            Text {
+                            FadeText {
                                 Layout.fillWidth: true
                                 text: window.islandState.media.title || "Dynamic Island"
                                 elide: Text.ElideRight
@@ -3046,7 +3189,7 @@ PanelWindow {
                                 font.bold: true
                                 font.pixelSize: 19
                             }
-                            Text {
+                            FadeText {
                                 Layout.fillWidth: true
                                 Layout.topMargin: 2
                                 text: window.islandState.media.artist || i18n.unknownArtist
@@ -3133,6 +3276,7 @@ PanelWindow {
                                         width: parent.width
                                         horizontalAlignment: Text.AlignHCenter
                                         text: window.lyricPrev
+                                        textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         color: window.mediaPanelMuted
                                         font.family: window.uiFont
@@ -3145,6 +3289,7 @@ PanelWindow {
                                         width: parent.width
                                         horizontalAlignment: Text.AlignHCenter
                                         text: window.lyricCurrent
+                                        textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         color: window.lyricIsPlaceholder ? window.mediaPanelMuted : window.mediaPanelText
                                         font.family: window.uiFont
@@ -3162,6 +3307,7 @@ PanelWindow {
                                         width: parent.width
                                         horizontalAlignment: Text.AlignHCenter
                                         text: window.lyricNext
+                                        textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         color: window.mediaPanelMuted
                                         font.family: window.uiFont
@@ -3234,16 +3380,15 @@ PanelWindow {
                                 }
                                 onPressedChanged: if (!pressed) {
                                     seekThrottle.stop()
-                                    Quickshell.execDetached(["playerctl", "position", Math.round(value).toString()])
+                                    window.run(["position", Math.round(value).toString()])
                                     window.setInteracting(false)
                                     positionSettleTimer.restart()
-                                    delayedRefresh.restart()
                                 }
 
                                 Timer {
                                     id: seekThrottle
                                     interval: 70
-                                    onTriggered: Quickshell.execDetached(["playerctl", "position", Math.round(seekSlider.value).toString()])
+                                    onTriggered: window.run(["position", Math.round(seekSlider.value).toString()])
                                 }
                             }
 
@@ -3478,12 +3623,12 @@ PanelWindow {
                         spacing: 6
 
                         Repeater {
-                            model: window.appStreams
+                            model: window.stableAppStreams
 
                             AppVolumeRow {
                                 required property var modelData
                                 width: parent.width
-                                appName: modelData.name
+                                appName: String(modelData.name || "").slice(0, 64)
                                 iconSource: window.resolveStreamIcon(modelData)
                                 value: modelData.volume
                                 muted: modelData.muted
@@ -3612,7 +3757,7 @@ PanelWindow {
                         spacing: 4
 
                         Repeater {
-                            model: window.queueStyle === "list" ? (window.mediaQueue.tracks || []) : []
+                            model: window.queueStyle === "list" ? window.visibleQueueTracks : []
 
                             Row {
                                 required property var modelData
@@ -3640,6 +3785,7 @@ PanelWindow {
                                     Text {
                                         width: parent.width
                                         text: modelData.title || "—"
+                                        textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         color: window.idleView ? window.themeText : window.mediaPanelText
                                         font.family: window.uiFont
@@ -3649,6 +3795,7 @@ PanelWindow {
                                         width: parent.width
                                         visible: String(modelData.artist || "") !== ""
                                         text: modelData.artist
+                                        textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         color: window.themeMuted
                                         font.family: window.uiFont
@@ -3684,7 +3831,7 @@ PanelWindow {
                         spacing: 10
 
                         Repeater {
-                            model: window.queueStyle === "covers" ? (window.mediaQueue.tracks || []) : []
+                            model: window.queueStyle === "covers" ? window.visibleQueueTracks : []
 
                             Column {
                                 required property var modelData
@@ -3721,6 +3868,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: modelData.title || "—"
+                                    textFormat: Text.PlainText
                                     elide: Text.ElideRight
                                     color: window.idleView ? window.themeText : window.mediaPanelText
                                     font.family: window.uiFont
@@ -3730,6 +3878,7 @@ PanelWindow {
                                     width: parent.width
                                     visible: String(modelData.artist || "") !== ""
                                     text: modelData.artist
+                                    textFormat: Text.PlainText
                                     elide: Text.ElideRight
                                     color: window.themeMuted
                                     font.family: window.uiFont
@@ -3769,7 +3918,7 @@ PanelWindow {
                         spacing: 0
 
                         Repeater {
-                            model: window.queueStyle === "timeline" ? (window.mediaQueue.tracks || []) : []
+                            model: window.queueStyle === "timeline" ? window.visibleQueueTracks : []
 
                             Row {
                                 required property var modelData
@@ -3799,7 +3948,7 @@ PanelWindow {
                                         width: 1
                                         height: 19
                                         color: window.themeLine
-                                        visible: index < (window.mediaQueue.tracks.length - 1)
+                                        visible: index < (window.visibleQueueTracks.length - 1)
                                     }
                                     Rectangle {
                                         anchors.horizontalCenter: parent.horizontalCenter
@@ -3818,6 +3967,7 @@ PanelWindow {
                                     Text {
                                         width: parent.width
                                         text: modelData.title || "—"
+                                        textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         color: window.idleView ? window.themeText : window.mediaPanelText
                                         font.family: window.uiFont
@@ -3827,6 +3977,7 @@ PanelWindow {
                                         width: parent.width
                                         visible: String(modelData.artist || "") !== ""
                                         text: modelData.artist
+                                        textFormat: Text.PlainText
                                         elide: Text.ElideRight
                                         color: window.themeMuted
                                         font.family: window.uiFont
@@ -4892,6 +5043,7 @@ PanelWindow {
 
                         Text {
                             text: window.notificationApp || i18n.notification
+                            textFormat: Text.PlainText
                             color: window.themeMuted
                             font.family: window.uiFont
                             font.weight: Font.DemiBold
@@ -4902,6 +5054,7 @@ PanelWindow {
                         Text {
                             Layout.fillWidth: true
                             text: window.notificationTitle || i18n.newNotification
+                            textFormat: Text.PlainText
                             color: window.themeText
                             font.family: window.uiFont
                             font.weight: Font.Bold
@@ -4911,6 +5064,7 @@ PanelWindow {
                         Text {
                             Layout.fillWidth: true
                             text: window.notificationBody || i18n.emptyNotification
+                            textFormat: Text.PlainText
                             color: window.themeSubtext
                             font.family: window.uiFont
                             font.pixelSize: 11
@@ -5143,6 +5297,7 @@ PanelWindow {
                         Layout.topMargin: 8
                         horizontalAlignment: Text.AlignHCenter
                         text: window.callDisplayTitle
+                        textFormat: Text.PlainText
                         color: window.themeText
                         font.family: window.uiFont
                         font.weight: Font.Bold
@@ -5153,6 +5308,7 @@ PanelWindow {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         text: window.callAnswering ? i18n.callConnecting : (window.callDisplayApp + " · " + i18n.incomingCall)
+                        textFormat: Text.PlainText
                         color: window.themeMuted
                         font.family: window.uiFont
                         font.pixelSize: 11
@@ -5234,6 +5390,7 @@ PanelWindow {
 
                         Text {
                             text: window.callDisplayApp
+                            textFormat: Text.PlainText
                             color: window.themeMuted
                             font.family: window.uiFont
                             font.weight: Font.DemiBold
@@ -5244,6 +5401,7 @@ PanelWindow {
                         Text {
                             Layout.fillWidth: true
                             text: window.callDisplayTitle
+                            textFormat: Text.PlainText
                             color: window.themeText
                             font.family: window.uiFont
                             font.weight: Font.Bold
@@ -5297,6 +5455,7 @@ PanelWindow {
             radius: 16
             color: window.themeHudFill
             border.width: 0
+            clip: true
             z: 20
 
             RowLayout {
@@ -5305,6 +5464,9 @@ PanelWindow {
                 spacing: 10
                 Text {
                     text: window.activityText !== "" ? window.activityText : window.hudKind
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: 220
                     color: window.themeText
                     font.family: window.iconFont
                     font.pixelSize: 13
@@ -5560,6 +5722,58 @@ PanelWindow {
             color: window.themeSubtext
             font.family: window.uiFont
             font.pixelSize: 10
+        }
+    }
+
+    // Cross-dissolves whenever the bound text/source changes, instead of
+    // popping — used for anything bound to the "currently playing" media
+    // (title, artist, player name, cover art) so switching between players
+    // (e.g. Spotify vs. a browser tab) reads as a transition, not a jump cut.
+    // Deliberately a single opacity animation that never reaches 0: dipping
+    // all the way to invisible left a blank instant that read as a freeze,
+    // and a paired scale/translate on top of it made it look jittery rather
+    // than smooth. One property, one easing curve, content never fully gone.
+    component FadeText: Text {
+        id: fadeText
+        // Every binding fed into this component's `text` ultimately traces
+        // back to MPRIS/PulseAudio metadata an external app controls, so it
+        // must never be promoted to rich text (Text.AutoText's default):
+        // a title like "<b>x</b>" would otherwise re-layout the fixed-size
+        // card around markup instead of rendering it as literal characters.
+        textFormat: Text.PlainText
+        opacity: 1
+        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+        onTextChanged: {
+            fadeText.opacity = 0.35
+            fadeSettle.restart()
+        }
+        Timer { id: fadeSettle; interval: 1; onTriggered: fadeText.opacity = 1 }
+    }
+
+    component FadeArt: Image {
+        id: fadeArt
+        // Some art boxes sit at less than full opacity by design; settling
+        // back has to land on that resting value rather than always 1.
+        property real baseOpacity: 1
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        opacity: baseOpacity
+        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        // Dip the instant a new source is requested, but only settle back
+        // once the new pixels are actually decoded and ready (or the load
+        // fails). Settling on a fixed timer instead made the reveal race the
+        // real (async, sometimes slow) image load: the animation would
+        // finish while the art was still loading, so the actual cover then
+        // popped in late with no animation left to carry it.
+        onSourceChanged: {
+            // An empty source (album art disabled) never leaves Image.Null,
+            // so there is nothing to wait for — settle immediately instead
+            // of dipping and never coming back.
+            fadeArt.opacity = fadeArt.source == "" ? fadeArt.baseOpacity : fadeArt.baseOpacity * 0.35
+        }
+        onStatusChanged: {
+            if (fadeArt.status === Image.Ready || fadeArt.status === Image.Error)
+                fadeArt.opacity = fadeArt.baseOpacity
         }
     }
 

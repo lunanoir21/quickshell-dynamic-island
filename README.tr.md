@@ -73,12 +73,13 @@ Her şey gri tonlamada çizilir. Hiçbir yerde vurgu rengi yoktur.
 </table>
 
 <!-- changelog:readme:start -->
-**YouTube kapakları, İngilizce olmayan yerellerde düzeltildi** — tr_TR.UTF-8
-gibi yerellerde glibc'nin regex motoru [A-Za-z]'yi düz bir bayt aralığı değil,
-sıralamaya duyarlı bir aralık olarak ele alır. Bu, backend.sh içindeki
-video-id eşleştirmesini, Türkçe sıralamanın algılanan A-Z/a-z aralığının
-dışına yerleştirdiği harf içeren her id'de sessizce bozdu; ada da tek video
-için kapak çekmek yerine boş bir kapağa düşüyordu.
+**Omarchy marketplace gönderimi öncesi proaktif güvenlik geçişi** — Omarchy
+marketplace'e gönderilmeden önce, ada dışarıdan aldığı her şeye bir
+güvenilirlik ve güvenlik taraması yapıldı: bildirimlerden ve medya
+oynatıcılardan gelen metinler, dışarıya açılan komutlar, arka plan süreçleri
+ve ayar dosyası. Tüm bulgular bir inceleyicinin üstüne gelmesini beklemeden
+önceden düzeltildi — görsel bir değişiklik yok; aynı ada, daha zor donan,
+şaşırtılan veya metin enjekte edilemeyen hâli.
 
 [Tüm değişiklik günlüğü →](https://lunanoir21.github.io/quickshell-dynamic-island/changelog.html)
 <!-- changelog:readme:end -->

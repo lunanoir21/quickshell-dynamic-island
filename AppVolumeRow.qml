@@ -103,6 +103,7 @@ Item {
         anchors { left: logoSlot.right; leftMargin: 12; verticalCenter: parent.verticalCenter }
         width: root.nameWidth
         text: root.appName
+        textFormat: Text.PlainText
         elide: Text.ElideRight
         color: root.muted ? root.disabledColor : root.textColor
         font.family: root.fontFamily
