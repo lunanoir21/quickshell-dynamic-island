@@ -75,6 +75,11 @@ to wedge, confuse or inject into.
   enforced while receiving (a chunked or lengthless oversized reply is cut
   off instead of absorbed), and the cover art shown in the UI is the bounded
   local cache file — never a remote thumbnail URL.
+- YouTube cover validation now rejects any image whose dimensions cannot be
+  verified at all, instead of falling back to accepting it on byte size alone
+  — a small file can still declare an enormous decoded size, and a fixed
+  upper bound (4096 per side, 16 total megapixels) now blocks that as well
+  as the too-small placeholder check that was already there.
 
 ## [2026.08.17] - 2026-08-17
 

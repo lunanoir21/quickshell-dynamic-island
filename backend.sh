@@ -154,14 +154,24 @@ bounded_fetch() {
 # "maxres unavailable" placeholder. Dimension-aware when ImageMagick exists;
 # byte size is the dependency-free fallback.
 image_acceptable() {
-    local f="$1" width=0 height=0 bytes
-    bytes=$(stat -c %s "$f" 2>/dev/null || echo 0)
+    local f="$1" width=0 height=0
     if command -v identify >/dev/null 2>&1; then
         read -r width height < <(identify -format '%w %h' "$f" 2>/dev/null || echo '0 0')
     elif command -v magick >/dev/null 2>&1; then
         read -r width height < <(magick identify -format '%w %h' "$f" 2>/dev/null || echo '0 0')
     fi
-    (( width >= 320 && height >= 180 )) || { (( width == 0 )) && (( bytes >= 4096 )); }
+    # Fail closed the moment dimensions can't be verified at all (no
+    # ImageMagick, or a file it can't parse) — a bounded byte size still
+    # leaves room for a crafted image that *decodes* to an enormous pixel
+    # buffer, which the old byte-size fallback below had no way to catch.
+    [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]] || return 1
+    (( width >= 320 && height >= 180 )) || return 1
+    # Upper bound too: a real YouTube thumbnail never exceeds 1280x720
+    # (maxresdefault). 4096 per side plus a 16-megapixel total cap stops a
+    # small file from claiming an extreme aspect ratio to slip under a
+    # width-only or height-only ceiling while still decoding to a huge
+    # buffer in the long-lived QML process that loads it.
+    (( width <= 4096 && height <= 4096 && width * height <= 16777216 ))
 }
 
 # Only a bounded local artifact ever reaches the UI — a raw i.ytimg.com URL

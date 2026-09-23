@@ -80,6 +80,11 @@ zor donan, şaşırtılan veya metin enjekte edilemeyen hâli.
   bir dosyaya akıtılıyor (chunked ya da uzunluksuz dev bir yanıt emilmek yerine
   kesiliyor) ve arayüzde gösterilen kapak görseli sınırlandırılmış yerel önbellek
   dosyası — asla uzak bir küçük resim URL'si değil.
+- YouTube kapak doğrulaması artık boyutu hiç doğrulanamayan bir görseli
+  bayt büyüklüğüne bakarak kabul etmek yerine tamamen reddediyor — küçük bir
+  dosya yine de devasa bir çözülmüş boyut bildirebilir; sabit bir üst sınır
+  (kenar başına 4096, toplamda 16 megapiksel) artık zaten var olan
+  "çok küçük" (yer tutucu) kontrolünün yanında bunu da engelliyor.
 
 ## [2026.08.17] - 2026-08-17
 
