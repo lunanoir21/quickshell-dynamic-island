@@ -5,7 +5,28 @@ set -u
 # (the completion chime) are found wherever the project was cloned.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-base_dir="${XDG_RUNTIME_DIR:-/tmp}/quickshell/dynamic-island"
+# Transient state (pinned player, call flag, slow cache, chime PID). Prefer
+# XDG_RUNTIME_DIR — a session-manager runtime dir is already per-user,
+# owner-only and mode 0700. Without one, fall back to a 0700 directory under
+# the user's own cache: a predictable shared /tmp path would let another
+# local user pre-create the tree (or a symlink) before the first run and then
+# influence the state and the trusted chime PID file kept here. Every run
+# re-verifies owner, type and mode, and on any mismatch switches to an
+# exclusive throw-away directory rather than trusting a path we cannot
+# attribute to ourselves.
+if [[ -n "${XDG_RUNTIME_DIR:-}" ]] && [[ -d "$XDG_RUNTIME_DIR" && ! -L "$XDG_RUNTIME_DIR" ]]; then
+    base_dir="$XDG_RUNTIME_DIR/quickshell/dynamic-island"
+else
+    base_dir="$HOME/.cache/quickshell/dynamic-island/runtime"
+fi
+mkdir -p "$base_dir" 2>/dev/null
+chmod 700 "$base_dir" 2>/dev/null
+if [[ -L "$base_dir" ]] \
+    || [[ "$(stat -c %u "$base_dir" 2>/dev/null)" != "$(id -u)" ]] \
+    || [[ "$(stat -c %a "$base_dir" 2>/dev/null)" != "700" ]]; then
+    base_dir="$(mktemp -d "${TMPDIR:-/tmp}/quickshell-di.XXXXXXXX")" 2>/dev/null
+    chmod 700 "$base_dir" 2>/dev/null
+fi
 slow_cache="$base_dir/slow.json"
 slow_lock="$base_dir/slow.lock"
 call_state="$base_dir/call.json"
@@ -107,10 +128,47 @@ youtube_id_from_url() {
     LC_ALL="$old_lc_all"
 }
 
-# Starts a single background download per video and immediately returns a
-# usable source. The next snapshot switches to the local cached file. Quality
-# is tried high-to-low, but tiny YouTube "maxres unavailable" placeholders are
-# rejected so they can never be mistaken for a successful cover.
+# Downloads to $1 with a hard byte ceiling ($2) enforced *while receiving*
+# rather than trusting --max-filesize, which curl only honours when the
+# server supplies a known Content-Length (chunked or lengthless responses
+# bypass it and land unbounded in a shell variable). The remaining arguments
+# are handed to curl as-is. Streaming through `head -c` gives curl a closed
+# pipe the moment the ceiling is crossed, so an oversized endpoint kills the
+# transfer instead of buffering it. The result is validated by size and must
+# be non-empty; anything else is removed and reported as a failure.
+bounded_fetch() {
+    local out="$1" ceiling="${2:-5242880}" bytes
+    shift 2
+    curl -fsSL --connect-timeout 2 --max-time 8 --retry 1 --max-filesize "$ceiling" \
+        "$@" -o - 2>/dev/null | head -c "$ceiling" > "$out.tmp"
+    bytes=$(stat -c %s "$out.tmp" 2>/dev/null || echo 0)
+    if (( bytes > 0 && bytes <= ceiling )); then
+        mv "$out.tmp" "$out"
+        return 0
+    fi
+    rm -f "$out.tmp"
+    return 1
+}
+
+# True if $1 looks like a real YouTube cover rather than YouTube's 120x90
+# "maxres unavailable" placeholder. Dimension-aware when ImageMagick exists;
+# byte size is the dependency-free fallback.
+image_acceptable() {
+    local f="$1" width=0 height=0 bytes
+    bytes=$(stat -c %s "$f" 2>/dev/null || echo 0)
+    if command -v identify >/dev/null 2>&1; then
+        read -r width height < <(identify -format '%w %h' "$f" 2>/dev/null || echo '0 0')
+    elif command -v magick >/dev/null 2>&1; then
+        read -r width height < <(magick identify -format '%w %h' "$f" 2>/dev/null || echo '0 0')
+    fi
+    (( width >= 320 && height >= 180 )) || { (( width == 0 )) && (( bytes >= 4096 )); }
+}
+
+# Only a bounded local artifact ever reaches the UI — a raw i.ytimg.com URL
+# is never returned. The first frame (hqdefault, present for effectively
+# every public video) is fetched synchronously through bounded_fetch and
+# cached, so the immediate poll is already local; a background loop then
+# quietly upgrades the cache to the highest quality the video advertises.
 youtube_art_for() {
     # Split rather than chained: bash expands every word of a `local` command
     # before running it, so a later assignment referring to an earlier one on
@@ -125,36 +183,30 @@ youtube_art_for() {
         return 0
     fi
 
-    if command -v curl >/dev/null 2>&1 && mkdir "$lock" 2>/dev/null; then
+    if ! command -v curl >/dev/null 2>&1; then return 0; fi
+
+    local tmp
+    tmp="$thumbnail_dir/$id.first"
+    if bounded_fetch "$tmp" 5242880 "https://i.ytimg.com/vi/$id/hqdefault.jpg" \
+            && image_acceptable "$tmp"; then
+        mv "$tmp" "$cache"
+        printf 'file://%s' "$cache"
+        return 0
+    fi
+    rm -f "$tmp"
+
+    if mkdir "$lock" 2>/dev/null; then
         (
             trap 'rmdir "$lock" 2>/dev/null; rm -f "$cache.tmp"' EXIT
-            local quality width height bytes
-            for quality in maxresdefault sddefault hqdefault mqdefault; do
-                curl -fsSL --connect-timeout 2 --max-time 7 --retry 1 --max-filesize 5242880 \
-                    -o "$cache.tmp" "https://i.ytimg.com/vi/$id/$quality.jpg" || continue
-
-                bytes=$(stat -c %s "$cache.tmp" 2>/dev/null || echo 0)
-                width=0; height=0
-                if command -v identify >/dev/null 2>&1; then
-                    read -r width height < <(identify -format '%w %h' "$cache.tmp" 2>/dev/null || echo '0 0')
-                elif command -v magick >/dev/null 2>&1; then
-                    read -r width height < <(magick identify -format '%w %h' "$cache.tmp" 2>/dev/null || echo '0 0')
-                fi
-
-                # Dimension-aware when ImageMagick exists; byte size is the
-                # dependency-free fallback. Both reject 120x90 placeholders.
-                if (( width >= 320 && height >= 180 )) || { (( width == 0 )) && (( bytes >= 4096 )); }; then
-                    mv "$cache.tmp" "$cache"
-                    exit 0
-                fi
-                rm -f "$cache.tmp"
+            local quality
+            for quality in maxresdefault sddefault hqdefault; do
+                bounded_fetch "$cache.tmp" 5242880 "https://i.ytimg.com/vi/$id/$quality.jpg" \
+                    && image_acceptable "$cache.tmp" || { rm -f "$cache.tmp"; continue; }
+                mv "$cache.tmp" "$cache"
+                exit 0
             done
         ) >/dev/null 2>&1 &
     fi
-
-    # hqdefault exists for effectively every public video and keeps the first
-    # frame useful while the higher-quality local cache is being populated.
-    printf 'https://i.ytimg.com/vi/%s/hqdefault.jpg' "$id"
 }
 
 # Firefox's MPRIS bridge never reports mpris:length for YouTube, live
@@ -178,12 +230,17 @@ youtube_duration_for() {
 
     if command -v curl >/dev/null 2>&1 && mkdir "$lock" 2>/dev/null; then
         (
-            trap 'rmdir "$lock" 2>/dev/null' EXIT
-            local html seconds
-            html=$(curl -fsSL --connect-timeout 2 --max-time 5 --max-filesize 5242880 \
-                "https://www.youtube.com/watch?v=$id" 2>/dev/null)
-            seconds=$(grep -oE '"lengthSeconds":"[0-9]+"' <<<"$html" | head -n1 | grep -oE '[0-9]+')
-            [[ "$seconds" =~ ^[0-9]+$ ]] || seconds=0
+            trap 'rmdir "$lock" 2>/dev/null; rm -f "$cache.html"' EXIT
+            local seconds
+            # The watch page is ~1.5MB of HTML; buffering the whole response
+            # in a variable is exactly what bounded_fetch exists to avoid.
+            if bounded_fetch "$cache.html" 5242880 "https://www.youtube.com/watch?v=$id"; then
+                seconds=$(grep -oE '"lengthSeconds":"[0-9]+"' "$cache.html" | head -n1 | grep -oE '[0-9]+')
+                [[ "$seconds" =~ ^[0-9]+$ ]] || seconds=0
+            else
+                seconds=0
+            fi
+            rm -f "$cache.html"
             printf '%s' "$seconds" > "$cache.tmp" && mv "$cache.tmp" "$cache"
         ) >/dev/null 2>&1 &
     fi
@@ -270,23 +327,34 @@ lyrics_for() {
     mkdir "$lock" 2>/dev/null || return 0
     trap 'rmdir "$lock" 2>/dev/null' RETURN
 
-    local response synced plain
-    response=$(curl -fsSL --max-time 6 --max-filesize 5242880 -G 'https://lrclib.net/api/get' \
-        --data-urlencode "artist_name=$artist" \
-        --data-urlencode "track_name=$title" \
-        ${duration:+--data-urlencode "duration=$duration"} 2>/dev/null || true)
-
-    # LRCLIB matches duration within a couple of seconds and 404s otherwise.
-    # Players round differently, so a miss here is often just that — retry
-    # without the constraint before believing the track has no lyrics.
-    if [[ -z "$response" ]]; then
-        response=$(curl -fsSL --max-time 6 --max-filesize 5242880 -G 'https://lrclib.net/api/get' \
+    # LRCLIB responses are JSON fetched through bounded_fetch into a temp
+    # file — never into a shell variable, so a chunked/lengthless oversized
+    # reply cannot balloon the long-lived process's memory. The jq reads run
+    # on the file itself.
+    local synced="" plain="" tmp ok=0
+    tmp="$lyrics_dir/$key.lrc.tmp"
+    if bounded_fetch "$tmp" 5242880 -G 'https://lrclib.net/api/get' \
             --data-urlencode "artist_name=$artist" \
-            --data-urlencode "track_name=$title" 2>/dev/null || true)
+            --data-urlencode "track_name=$title" \
+            ${duration:+--data-urlencode "duration=$duration"}; then
+        ok=1
+    else
+        # LRCLIB matches duration within a couple of seconds and 404s
+        # otherwise. Players round differently, so a miss here is often just
+        # that — retry without the constraint before believing the track has
+        # no lyrics.
+        if bounded_fetch "$tmp" 5242880 -G 'https://lrclib.net/api/get' \
+                --data-urlencode "artist_name=$artist" \
+                --data-urlencode "track_name=$title"; then
+            ok=1
+        fi
     fi
 
-    synced=$(jq -r '.syncedLyrics // empty' <<<"$response" 2>/dev/null)
-    plain=$(jq -r '.plainLyrics // empty' <<<"$response" 2>/dev/null)
+    if (( ok )); then
+        synced=$(jq -r '.syncedLyrics // empty' "$tmp" 2>/dev/null)
+        plain=$(jq -r '.plainLyrics // empty' "$tmp" 2>/dev/null)
+    fi
+    rm -f "$tmp"
 
     # Written even when empty: that empty file is the negative-cache marker
     # that stops every later track change from hitting the network again.
@@ -746,8 +814,16 @@ case "${1:-snapshot}" in
             echo $! > "$base_dir/chime.pid"
         fi ;;
     chime-stop)
+        # Only ever signal a PID this instance recorded for one of our chime
+        # players, owned by us — never whatever foreign value ends up in a
+        # path a sibling local user might have pre-created.
         if [[ -f "$base_dir/chime.pid" ]]; then
-            kill "$(cat "$base_dir/chime.pid")" 2>/dev/null || true
+            chime_pid=$(cat "$base_dir/chime.pid" 2>/dev/null)
+            if [[ "$chime_pid" =~ ^[0-9]+$ ]] \
+                && [[ "$(stat -c %u "/proc/$chime_pid" 2>/dev/null)" == "$(id -u)" ]] \
+                && grep -qE 'aplay|pw-play|paplay|canberra-gtk-play' "/proc/$chime_pid/cmdline" 2>/dev/null; then
+                kill "$chime_pid" 2>/dev/null || true
+            fi
             rm -f "$base_dir/chime.pid"
         fi
         # Also kill any stray pw-play/paplay/aplay playing our chime files

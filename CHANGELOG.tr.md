@@ -70,6 +70,16 @@ zor donan, şaşırtılan veya metin enjekte edilemeyen hâli.
 - Uzaktaki kapak ve şarkı sözü indirmeleri boyut bakımından sınırlandırılıyor,
   eski önbellek dosyaları temizleniyor; davranış bozuk bir uç nokta diski
   dolduramıyor.
+- Geçici durum artık `/tmp` altında öngörülebilir, paylaşılan bir yolda
+  durmuyor: betik oturumun özel çalışma zamanı dizinini tercih ediyor, yoksa
+  kullanıcının kendi önbelleğine düşüyor; her çalıştırmada sahip, tür ve izin
+  doğrulanıp sembolik bağlantılar reddediliyor. Bitiş zili PID'i de yalnızca bu
+  örneğin başlattığı bir sürece aitse sinyalleniyor.
+- YouTube ve şarkı sözü yanıtları artık tümüyle kabuğun belleğine
+  alınmıyor: alırken zorla uygulanan bir bayt tavanıyla sınırlandırılmış geçici
+  bir dosyaya akıtılıyor (chunked ya da uzunluksuz dev bir yanıt emilmek yerine
+  kesiliyor) ve arayüzde gösterilen kapak görseli sınırlandırılmış yerel önbellek
+  dosyası — asla uzak bir küçük resim URL'si değil.
 
 ## [2026.08.17] - 2026-08-17
 

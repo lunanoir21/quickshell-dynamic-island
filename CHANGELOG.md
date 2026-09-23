@@ -65,6 +65,16 @@ to wedge, confuse or inject into.
   near-simultaneously no longer overwrite each other's choice (last-writer-wins).
 - Fetches of remote artwork and lyrics are capped in size and stale cache files
   are swept, so a misbehaving endpoint cannot fill the disk.
+- Transient state no longer lives in a predictable shared path under
+  `/tmp`: the script prefers the session's private runtime directory and
+  otherwise falls back to the user's own cache, re-verifying ownership, type
+  and mode (and refusing symlinks) on every run, and the completion-chime PID
+  is only ever signalled when it belongs to a process this instance started.
+- YouTube and lyric responses are no longer buffered whole into the shell's
+  memory: they stream into a bounded temporary file with a hard byte ceiling
+  enforced while receiving (a chunked or lengthless oversized reply is cut
+  off instead of absorbed), and the cover art shown in the UI is the bounded
+  local cache file — never a remote thumbnail URL.
 
 ## [2026.08.17] - 2026-08-17
 
